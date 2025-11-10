@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Clip Submission - albim.lol</title>
     <link rel="stylesheet" href="style.css">
-    <script src="https://www.google.com/recaptcha/api.js?render=6LephAgsAAAAAOBabRnNl9DZv8ljTB2WHOusHuK4"></script>
+    <!-- reCAPTCHA v3 -->
+    <script src="https://www.google.com/recaptcha/api.js?render=6LephAgsAAAAAC80hvaotX1CWEe14rgtLIAskZxO"></script>
 </head>
 <body>
     <div class="container">
@@ -15,6 +16,7 @@
         </header>
 
         <form id="uploadForm" class="upload-form">
+            <!-- I tuoi campi del form -->
             <div class="form-group">
                 <label for="name">Your Name/Nickname *</label>
                 <input type="text" id="name" name="name" required>
@@ -50,7 +52,7 @@
             <div class="form-group">
                 <label for="clipFile">Upload Your Clip *</label>
                 <input type="file" id="clipFile" name="clipFile" accept="video/*" required>
-                <small>Max file size: 25MB. Supported formats: MP4, MOV, AVI, etc.</small>
+                <small style="display: block; margin-top: 5px; color: #666;">Max file size: 1GB. Supported formats: MP4, MOV, AVI, MKV, etc.</small>
             </div>
 
             <!-- Rights Agreement -->

@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const btnText = document.getElementById('btnText');
     const btnSpinner = document.getElementById('btnSpinner');
     const messageDiv = document.getElementById('message');
+    const fileInput = document.getElementById('clipFile');
 
     // Show/hide bug specification field
     clipTypeSelect.addEventListener('change', function() {
@@ -17,14 +18,6 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // File size validation
-    const fileInput = document.getElementById('clipFile');
-    const fileSizeInfo = document.createElement('small');
-    fileSizeInfo.style.display = 'block';
-    fileSizeInfo.style.marginTop = '5px';
-    fileSizeInfo.style.color = '#666';
-    fileSizeInfo.textContent = 'Max file size: 1GB. Supported formats: MP4, MOV, AVI, MKV, etc.';
-    fileInput.parentNode.appendChild(fileSizeInfo);
-
     fileInput.addEventListener('change', function() {
         const file = this.files[0];
         if (file) {
@@ -71,7 +64,7 @@ document.addEventListener('DOMContentLoaded', function() {
         setLoading(true);
 
         try {
-            // Get reCAPTCHA token
+            // Get reCAPTCHA v3 token
             const token = await grecaptcha.execute('6LephAgsAAAAAC80hvaotX1CWEe14rgtLIAskZxO', {action: 'submit'});
             
             // Create FormData
