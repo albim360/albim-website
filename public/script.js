@@ -17,21 +17,21 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // File size validation
+    // File info display (SOLO per mostrare all'utente)
     fileInput.addEventListener('change', function() {
         const file = this.files[0];
         if (file) {
-            const maxSize = 2 * 1024 * 1024 * 1024; // 2GB (limite WeTransfer)
+            const maxSize = 2 * 1024 * 1024 * 1024; // 2GB
             if (file.size > maxSize) {
-                showMessage('File size must be less than 2GB for WeTransfer', 'error');
+                showMessage('File size must be less than 2GB', 'error');
                 this.value = '';
             } else {
                 const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
                 const fileSizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
                 if (file.size > 1024 * 1024 * 1024) {
-                    showMessage(`File selected: ${fileSizeGB} GB - Ready for WeTransfer`, 'success');
+                    showMessage(`File selected: ${fileSizeGB} GB - Will be uploaded via WeTransfer`, 'success');
                 } else {
-                    showMessage(`File selected: ${fileSizeMB} MB - Ready for WeTransfer`, 'success');
+                    showMessage(`File selected: ${fileSizeMB} MB - Will be uploaded via WeTransfer`, 'success');
                 }
             }
         }
@@ -40,14 +40,31 @@ document.addEventListener('DOMContentLoaded', function() {
     form.addEventListener('submit', async function(e) {
         e.preventDefault();
         
-        // Validate file
+        // Validazione campi obbligatori
+        const name = document.getElementById('name').value;
+        const email = document.getElementById('email').value;
+        const description = document.getElementById('description').value;
+        
+        if (!name || !email || !description) {
+            showMessage('Please fill all required fields', 'error');
+            return;
+        }
+
+        // Validazione email
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+            showMessage('Please enter a valid email address', 'error');
+            return;
+        }
+
+        // Validazione file
         const file = fileInput.files[0];
         if (!file) {
             showMessage('Please select a clip file', 'error');
             return;
         }
 
-        // Validate file type
+        // Validazione tipo file
         const validTypes = [
             'video/mp4', 
             'video/quicktime', 
@@ -67,44 +84,41 @@ document.addEventListener('DOMContentLoaded', function() {
             // Get reCAPTCHA v3 token
             const token = await grecaptcha.execute('6LcolggsAAAAAIXx3zwptDhS2ArV8v29-Uc2x_Td', {action: 'submit'});
             
-            // Create FormData
+            // **IMPORTANTE: SOLO METADATI, NESSUN FILE**
             const formData = new FormData();
-            formData.append('name', document.getElementById('name').value);
-            formData.append('email', document.getElementById('email').value);
+            formData.append('name', name);
+            formData.append('email', email);
             formData.append('clipType', document.getElementById('clipType').value);
             formData.append('bugSpecific', document.getElementById('bugSpecific').value);
-            formData.append('description', document.getElementById('description').value);
-            formData.append('clipFile', file);
+            formData.append('description', description);
             formData.append('recaptchaToken', token);
+            
+            // **SOLO INFO FILE (METADATI) - NESSUN FILE CONTENT**
+            formData.append('fileName', file.name);
+            formData.append('fileSize', file.size.toString());
+            formData.append('fileType', file.type);
 
-            // Send to API
+            // Send to API (SOLO metadati, pochi KB)
             const response = await fetch('/api/upload', {
                 method: 'POST',
                 body: formData
             });
 
-            // Check if response is OK
             if (!response.ok) {
                 const errorText = await response.text();
                 throw new Error(`Server error: ${response.status} - ${errorText}`);
             }
 
-            // Try to parse JSON response
-            let result;
-            try {
-                result = await response.json();
-            } catch (jsonError) {
-                throw new Error('Invalid response from server');
-            }
+            const result = await response.json();
 
             if (result.success) {
-                if (result.transferUrl) {
-                    showMessage('✅ Clip submitted successfully! Opening WeTransfer...', 'success');
-                    // Apri WeTransfer in nuova finestra
-                    window.open(result.transferUrl, '_blank');
-                } else {
-                    showMessage('✅ ' + result.message, 'success');
-                }
+                showMessage('✅ Submission received! Opening WeTransfer...', 'success');
+                
+                // Apri WeTransfer in nuova finestra
+                setTimeout(() => {
+                    window.open('https://wetransfer.com/', '_blank');
+                }, 1000);
+                
                 form.reset();
                 bugSpecificGroup.style.display = 'none';
                 fileInput.value = '';
@@ -122,11 +136,11 @@ document.addEventListener('DOMContentLoaded', function() {
     function setLoading(loading) {
         if (loading) {
             submitBtn.disabled = true;
-            btnText.textContent = 'Creating WeTransfer...';
+            btnText.textContent = 'Processing...';
             btnSpinner.style.display = 'block';
         } else {
             submitBtn.disabled = false;
-            btnText.textContent = 'Submit Clip via WeTransfer';
+            btnText.textContent = 'Submit Clip Request';
             btnSpinner.style.display = 'none';
         }
     }
