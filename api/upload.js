@@ -1,7 +1,6 @@
 const nodemailer = require('nodemailer');
 const fetch = require('node-fetch');
 const formidable = require('formidable');
-const fs = require('fs');
 
 module.exports = async (req, res) => {
   // Enable CORS
@@ -19,22 +18,20 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // Parse form data - 2GB MAX (limite WeTransfer)
+    // Parse SOLO metadati - NO FILE UPLOAD
     const form = formidable({
-      maxFileSize: 2 * 1024 * 1024 * 1024, // 2GB
+      maxFields: 20,
+      maxFieldsSize: 2 * 1024 * 1024, // 2MB per i campi testo
+      maxFileSize: 0, // IMPORTANTE: NESSUN FILE
       multiples: false
     });
 
     const [fields, files] = await new Promise((resolve, reject) => {
       form.parse(req, (err, fields, files) => {
         if (err) {
-          if (err.code === 'maxFileSizeExceeded') {
-            reject(new Error('File too large. Maximum size is 2GB for WeTransfer.'));
-          } else {
-            reject(err);
-          }
+          reject(err);
         } else {
-          resolve([fields, files]);
+          resolve([fields, fields]); // Secondo parametro è fields invece di files
         }
       });
     });
@@ -57,59 +54,50 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'reCAPTCHA verification failed' });
     }
 
-    // Process form data
+    // Process form data (SOLO METADATI)
     const name = Array.isArray(fields.name) ? fields.name[0] : fields.name;
     const email = Array.isArray(fields.email) ? fields.email[0] : fields.email;
     const clipType = Array.isArray(fields.clipType) ? fields.clipType[0] : fields.clipType;
     const bugSpecific = Array.isArray(fields.bugSpecific) ? fields.bugSpecific[0] : fields.bugSpecific;
     const description = Array.isArray(fields.description) ? fields.description[0] : fields.description;
-    
-    const clipFile = files.clipFile;
+    const fileName = Array.isArray(fields.fileName) ? fields.fileName[0] : fields.fileName;
+    const fileSize = Array.isArray(fields.fileSize) ? fields.fileSize[0] : fields.fileSize;
+    const fileType = Array.isArray(fields.fileType) ? fields.fileType[0] : fields.fileType;
 
-    if (!clipFile) {
-      return res.status(400).json({ error: 'No clip file provided' });
+    // Validazione campi obbligatori
+    if (!name || !email || !description) {
+      return res.status(400).json({ error: 'Missing required fields: name, email, description' });
     }
 
-    // Create WeTransfer link
-    const weTransferUrl = await createWeTransferLink(clipFile, name, email, description);
+    // Validazione email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Invalid email address' });
+    }
+
+    // Generate unique submission ID
+    const submissionId = 'sub_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
     // Send email notification
-    await sendEmailNotification(name, email, clipType, bugSpecific, description, clipFile, weTransferUrl);
+    await sendEmailNotification(name, email, clipType, bugSpecific, description, fileName, fileSize, fileType, submissionId);
 
     res.status(200).json({ 
       success: true, 
-      message: 'WeTransfer link created successfully!',
-      transferUrl: weTransferUrl
+      message: 'Submission received! Open WeTransfer to upload your file.',
+      submissionId: submissionId,
+      weTransferUrl: 'https://wetransfer.com/'
     });
 
   } catch (error) {
     console.error('Error processing submission:', error);
-    
-    if (error.message.includes('File too large')) {
-      return res.status(400).json({ 
-        error: 'File too large. Maximum size is 2GB.' 
-      });
-    }
-    
     res.status(500).json({ 
       error: 'Internal server error: ' + error.message 
     });
   }
 };
 
-// Funzione per creare link WeTransfer
-async function createWeTransferLink(clipFile, name, email, description) {
-  // WeTransfer non richiede API key per trasferimenti singoli
-  // Creiamo un link diretto al sito WeTransfer
-  const baseUrl = 'https://wetransfer.com/';
-  
-  // In un'implementazione reale, useresti l'API WeTransfer
-  // Per ora restituiamo un link al sito per l'upload manuale
-  return baseUrl;
-}
-
 // Funzione per inviare email di notifica
-async function sendEmailNotification(name, email, clipType, bugSpecific, description, clipFile, weTransferUrl) {
+async function sendEmailNotification(name, email, clipType, bugSpecific, description, fileName, fileSize, fileType, submissionId) {
   const transporter = nodemailer.createTransporter({
     service: 'gmail',
     auth: {
@@ -128,9 +116,13 @@ async function sendEmailNotification(name, email, clipType, bugSpecific, descrip
   };
 
   // Calculate file size for display
-  const fileSizeMB = (clipFile.size / (1024 * 1024)).toFixed(2);
-  const fileSizeGB = (clipFile.size / (1024 * 1024 * 1024)).toFixed(2);
-  const displaySize = clipFile.size > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
+  let displaySize = 'Unknown size';
+  if (fileSize) {
+    const fileSizeNum = parseInt(fileSize);
+    const fileSizeMB = (fileSizeNum / (1024 * 1024)).toFixed(2);
+    const fileSizeGB = (fileSizeNum / (1024 * 1024 * 1024)).toFixed(2);
+    displaySize = fileSizeNum > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
+  }
 
   const mailOptions = {
     from: process.env.EMAIL_USER,
@@ -149,14 +141,14 @@ async function sendEmailNotification(name, email, clipType, bugSpecific, descrip
               .label { font-weight: bold; color: #2d3436; }
               .value { color: #636e72; }
               .rights-box { background: #e8f5e8; border-left: 4px solid #00b894; padding: 15px; margin: 20px 0; }
-              .transfer-box { background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 20px 0; }
-              .download-link { background: #00aaff; color: white; padding: 12px 20px; border-radius: 6px; text-decoration: none; display: inline-block; }
+              .instruction-box { background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 20px 0; }
+              .contact-box { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; }
           </style>
       </head>
       <body>
           <div class="container">
               <div class="header">
-                  <h1>🎬 New Clip Submission via WeTransfer!</h1>
+                  <h1>🎬 New Clip Submission Received!</h1>
                   <p>Clip Type: ${clipTypeLabels[clipType] || clipType}</p>
               </div>
               <div class="content">
@@ -177,20 +169,39 @@ async function sendEmailNotification(name, email, clipType, bugSpecific, descrip
                   </div>
                   ` : ''}
                   
+                  ${fileName ? `
                   <div class="field">
                       <span class="label">📁 File Info:</span>
-                      <span class="value">${clipFile.originalFilename} (${displaySize})</span>
+                      <span class="value">${fileName} (${displaySize}${fileType ? ', ' + fileType : ''})</span>
+                  </div>
+                  ` : ''}
+                  
+                  <div class="instruction-box">
+                      <strong>📤 WeTransfer Upload Required</strong><br>
+                      User has been directed to upload their file via WeTransfer.<br>
+                      <strong>Submission ID:</strong> ${submissionId}<br>
+                      <strong>Expected File:</strong> ${fileName || 'Not specified'}
                   </div>
                   
-                  <div class="transfer-box">
-                      <strong>📤 WeTransfer Upload Ready!</strong><br>
-                      The user has been redirected to WeTransfer to upload their file.<br>
-                      You will receive the file via WeTransfer once they complete the upload.
+                  <div class="contact-box">
+                      <strong>📧 Contact Information</strong><br>
+                      <strong>User Email:</strong> ${email}<br>
+                      <strong>User Name:</strong> ${name}<br>
+                      Contact them directly if the file doesn't arrive via WeTransfer.
                   </div>
                   
                   <div class="rights-box">
-                      <strong>✅ Rights Agreement Confirmed:</strong><br>
-                      Submitter has agreed to all terms including YouTube publication rights and copyright transfer.
+                      <strong>✅ Rights Agreement Confirmed</strong><br>
+                      Submitter has agreed to all terms including:<br>
+                      • YouTube publication rights<br>
+                      • Copyright transfer<br>
+                      • No compensation claims<br>
+                      • Ownership verification
+                  </div>
+                  
+                  <div style="text-align: center; margin-top: 25px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                      <strong>Submission Time:</strong> ${new Date().toLocaleString('it-IT')}<br>
+                      <strong>Submission ID:</strong> ${submissionId}
                   </div>
               </div>
           </div>
@@ -199,5 +210,11 @@ async function sendEmailNotification(name, email, clipType, bugSpecific, descrip
     `
   };
 
-  await transporter.sendMail(mailOptions);
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log('Notification email sent successfully for submission:', submissionId);
+  } catch (emailError) {
+    console.error('Failed to send notification email:', emailError);
+    throw new Error('Failed to send notification email');
+  }
 }
