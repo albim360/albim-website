@@ -1,6 +1,7 @@
 const nodemailer = require('nodemailer');
 const fetch = require('node-fetch');
 const formidable = require('formidable');
+const { google } = require('googleapis');
 
 module.exports = async (req, res) => {
   // Enable CORS
@@ -18,20 +19,22 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // Parse SOLO metadati - NO FILE UPLOAD
+    // Parse form data CON file (finalmente!)
     const form = formidable({
-      maxFields: 20,
-      maxFieldsSize: 2 * 1024 * 1024, // 2MB per i campi testo
-      maxFileSize: 0, // IMPORTANTE: NESSUN FILE
+      maxFileSize: 2 * 1024 * 1024 * 1024, // 2GB
       multiples: false
     });
 
     const [fields, files] = await new Promise((resolve, reject) => {
       form.parse(req, (err, fields, files) => {
         if (err) {
-          reject(err);
+          if (err.code === 'maxFileSizeExceeded') {
+            reject(new Error('File too large. Maximum size is 2GB.'));
+          } else {
+            reject(err);
+          }
         } else {
-          resolve([fields, fields]); // Secondo parametro è fields invece di files
+          resolve([fields, files]);
         }
       });
     });
@@ -49,55 +52,130 @@ module.exports = async (req, res) => {
     });
 
     const recaptchaData = await recaptchaResponse.json();
-    
     if (!recaptchaData.success) {
       return res.status(400).json({ error: 'reCAPTCHA verification failed' });
     }
 
-    // Process form data (SOLO METADATI)
+    // Process form data
     const name = Array.isArray(fields.name) ? fields.name[0] : fields.name;
     const email = Array.isArray(fields.email) ? fields.email[0] : fields.email;
     const clipType = Array.isArray(fields.clipType) ? fields.clipType[0] : fields.clipType;
     const bugSpecific = Array.isArray(fields.bugSpecific) ? fields.bugSpecific[0] : fields.bugSpecific;
     const description = Array.isArray(fields.description) ? fields.description[0] : fields.description;
-    const fileName = Array.isArray(fields.fileName) ? fields.fileName[0] : fields.fileName;
-    const fileSize = Array.isArray(fields.fileSize) ? fields.fileSize[0] : fields.fileSize;
-    const fileType = Array.isArray(fields.fileType) ? fields.fileType[0] : fields.fileType;
+    
+    const clipFile = files.clipFile;
 
-    // Validazione campi obbligatori
-    if (!name || !email || !description) {
-      return res.status(400).json({ error: 'Missing required fields: name, email, description' });
+    if (!clipFile) {
+      return res.status(400).json({ error: 'No clip file provided' });
     }
 
-    // Validazione email
+    // Validations
+    if (!name || !email || !description) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return res.status(400).json({ error: 'Invalid email address' });
     }
 
-    // Generate unique submission ID
     const submissionId = 'sub_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
+    // Upload to Google Drive
+    const driveResult = await uploadToGoogleDrive(clipFile, name, email, description, submissionId);
+
     // Send email notification
-    await sendEmailNotification(name, email, clipType, bugSpecific, description, fileName, fileSize, fileType, submissionId);
+    await sendEmailNotification(name, email, clipType, bugSpecific, description, clipFile, submissionId, driveResult);
 
     res.status(200).json({ 
       success: true, 
-      message: 'Submission received! Open WeTransfer to upload your file.',
-      submissionId: submissionId
+      message: 'Clip uploaded successfully to Google Drive!',
+      submissionId: submissionId,
+      driveUrl: driveResult.webViewLink,
+      downloadUrl: driveResult.webContentLink
     });
 
   } catch (error) {
     console.error('Error processing submission:', error);
+    
+    if (error.message.includes('File too large')) {
+      return res.status(400).json({ 
+        error: 'File too large. Maximum size is 2GB.' 
+      });
+    }
+    
     res.status(500).json({ 
       error: 'Internal server error: ' + error.message 
     });
   }
 };
 
-// Funzione per inviare email di notifica - CORRETTA
-async function sendEmailNotification(name, email, clipType, bugSpecific, description, fileName, fileSize, fileType, submissionId) {
-  // CORREZIONE: usa createTransport invece di createTransporter
+// Upload file to Google Drive
+async function uploadToGoogleDrive(clipFile, name, email, description, submissionId) {
+  try {
+    // Configura l'autenticazione Google Drive
+    const auth = new google.auth.GoogleAuth({
+      credentials: {
+        type: 'service_account',
+        project_id: process.env.GOOGLE_PROJECT_ID,
+        private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
+        private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+        client_email: process.env.GOOGLE_CLIENT_EMAIL,
+        client_id: process.env.GOOGLE_CLIENT_ID,
+      },
+      scopes: ['https://www.googleapis.com/auth/drive.file']
+    });
+
+    const drive = google.drive({ version: 'v3', auth });
+
+    // Crea i metadata del file
+    const fileMetadata = {
+      name: `${submissionId}_${clipFile.originalFilename}`,
+      description: `Clip submission from ${name} (${email})\n\nDescription: ${description}\nSubmission ID: ${submissionId}`,
+      parents: [process.env.GOOGLE_DRIVE_FOLDER_ID] // Cartella specifica dove salvare
+    };
+
+    const media = {
+      mimeType: clipFile.mimetype,
+      body: require('fs').createReadStream(clipFile.filepath)
+    };
+
+    // Upload del file
+    const response = await drive.files.create({
+      resource: fileMetadata,
+      media: media,
+      fields: 'id, name, webViewLink, webContentLink, mimeType, size'
+    });
+
+    // Rendi il file pubblico
+    await drive.permissions.create({
+      fileId: response.data.id,
+      requestBody: {
+        role: 'reader',
+        type: 'anyone'
+      }
+    });
+
+    // Pulisci il file temporaneo
+    require('fs').unlinkSync(clipFile.filepath);
+
+    return {
+      fileId: response.data.id,
+      fileName: response.data.name,
+      webViewLink: response.data.webViewLink,
+      webContentLink: response.data.webContentLink,
+      mimeType: response.data.mimeType,
+      size: response.data.size
+    };
+
+  } catch (error) {
+    console.error('Google Drive upload error:', error);
+    throw new Error('Failed to upload to Google Drive: ' + error.message);
+  }
+}
+
+// Send email notification
+async function sendEmailNotification(name, userEmail, clipType, bugSpecific, description, clipFile, submissionId, driveResult) {
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -116,18 +194,14 @@ async function sendEmailNotification(name, email, clipType, bugSpecific, descrip
   };
 
   // Calculate file size for display
-  let displaySize = 'Unknown size';
-  if (fileSize) {
-    const fileSizeNum = parseInt(fileSize);
-    const fileSizeMB = (fileSizeNum / (1024 * 1024)).toFixed(2);
-    const fileSizeGB = (fileSizeNum / (1024 * 1024 * 1024)).toFixed(2);
-    displaySize = fileSizeNum > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
-  }
+  const fileSizeMB = (clipFile.size / (1024 * 1024)).toFixed(2);
+  const fileSizeGB = (clipFile.size / (1024 * 1024 * 1024)).toFixed(2);
+  const displaySize = clipFile.size > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
 
   const mailOptions = {
     from: process.env.EMAIL_USER,
     to: 'alberto.zappala360@gmail.com',
-    subject: `🎬 New Clip Submission: ${clipTypeLabels[clipType] || clipType}`,
+    subject: `🎬 NEW CLIP UPLOADED: ${clipTypeLabels[clipType] || clipType} - ${submissionId}`,
     html: `
       <!DOCTYPE html>
       <html>
@@ -141,20 +215,21 @@ async function sendEmailNotification(name, email, clipType, bugSpecific, descrip
               .label { font-weight: bold; color: #2d3436; }
               .value { color: #636e72; }
               .rights-box { background: #e8f5e8; border-left: 4px solid #00b894; padding: 15px; margin: 20px 0; }
-              .instruction-box { background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 20px 0; }
-              .contact-box { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; }
+              .drive-box { background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 20px 0; }
+              .download-btn { background: #34a853; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; margin: 10px 5px; }
+              .view-btn { background: #4285f4; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; margin: 10px 5px; }
           </style>
       </head>
       <body>
           <div class="container">
               <div class="header">
-                  <h1>🎬 New Clip Submission Received!</h1>
-                  <p>Clip Type: ${clipTypeLabels[clipType] || clipType}</p>
+                  <h1>🎬 Clip Successfully Uploaded!</h1>
+                  <p>Automatically saved to Google Drive</p>
               </div>
               <div class="content">
                   <div class="field">
                       <span class="label">👤 Submitted by:</span>
-                      <span class="value">${name} (${email})</span>
+                      <span class="value">${name} (${userEmail})</span>
                   </div>
                   
                   <div class="field">
@@ -169,39 +244,36 @@ async function sendEmailNotification(name, email, clipType, bugSpecific, descrip
                   </div>
                   ` : ''}
                   
-                  ${fileName ? `
                   <div class="field">
-                      <span class="label">📁 File Info:</span>
-                      <span class="value">${fileName} (${displaySize}${fileType ? ', ' + fileType : ''})</span>
+                      <span class="label">📁 File Uploaded:</span>
+                      <span class="value">${clipFile.originalFilename} (${displaySize})</span>
                   </div>
-                  ` : ''}
                   
-                  <div class="instruction-box">
-                      <strong>📤 WeTransfer Upload Required</strong><br>
-                      User has been directed to upload their file via WeTransfer.<br>
+                  <div class="drive-box">
+                      <strong>☁️ Stored in Google Drive</strong><br>
+                      File automatically uploaded and secured in your Google Drive.<br>
                       <strong>Submission ID:</strong> ${submissionId}<br>
-                      <strong>Expected File:</strong> ${fileName || 'Not specified'}
+                      <strong>Drive File ID:</strong> ${driveResult.fileId}
                   </div>
                   
-                  <div class="contact-box">
-                      <strong>📧 Contact Information</strong><br>
-                      <strong>User Email:</strong> ${email}<br>
-                      <strong>User Name:</strong> ${name}<br>
-                      Contact them directly if the file doesn't arrive via WeTransfer.
+                  <div style="text-align: center; margin: 25px 0;">
+                      <a href="${driveResult.webContentLink}" class="download-btn" target="_blank">
+                         📥 DOWNLOAD CLIP
+                      </a>
+                      <a href="${driveResult.webViewLink}" class="view-btn" target="_blank">
+                         👀 VIEW IN DRIVE
+                      </a>
                   </div>
                   
                   <div class="rights-box">
                       <strong>✅ Rights Agreement Confirmed</strong><br>
-                      Submitter has agreed to all terms including:<br>
-                      • YouTube publication rights<br>
-                      • Copyright transfer<br>
-                      • No compensation claims<br>
-                      • Ownership verification
+                      User agreed to YouTube publication rights and copyright transfer.
                   </div>
                   
                   <div style="text-align: center; margin-top: 25px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
-                      <strong>Submission Time:</strong> ${new Date().toLocaleString('it-IT')}<br>
-                      <strong>Submission ID:</strong> ${submissionId}
+                      <strong>Upload Time:</strong> ${new Date().toLocaleString('it-IT')}<br>
+                      <strong>Submission ID:</strong> ${submissionId}<br>
+                      <strong>File Size:</strong> ${displaySize}
                   </div>
               </div>
           </div>
@@ -210,11 +282,5 @@ async function sendEmailNotification(name, email, clipType, bugSpecific, descrip
     `
   };
 
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log('Notification email sent successfully for submission:', submissionId);
-  } catch (emailError) {
-    console.error('Failed to send notification email:', emailError);
-    throw new Error('Failed to send notification email');
-  }
+  await transporter.sendMail(mailOptions);
 }

@@ -9,7 +9,7 @@
     "nodemailer": "^6.9.4",
     "node-fetch": "^2.6.7",
     "formidable": "^2.1.1",
-    "@vercel/blob": "^0.6.0"
+    "googleapis": "^126.0.1"
   },
   "devDependencies": {
     "vercel": "^28.16.0"

@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // File info display (SOLO per mostrare all'utente)
+    // File info display
     fileInput.addEventListener('change', function() {
         const file = this.files[0];
         if (file) {
@@ -29,9 +29,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
                 const fileSizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
                 if (file.size > 1024 * 1024 * 1024) {
-                    showMessage(`File selected: ${fileSizeGB} GB - Will be uploaded via WeTransfer`, 'success');
+                    showMessage(`File selected: ${fileSizeGB} GB - Ready for Google Drive upload`, 'success');
                 } else {
-                    showMessage(`File selected: ${fileSizeMB} MB - Will be uploaded via WeTransfer`, 'success');
+                    showMessage(`File selected: ${fileSizeMB} MB - Ready for Google Drive upload`, 'success');
                 }
             }
         }
@@ -84,7 +84,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Get reCAPTCHA v3 token
             const token = await grecaptcha.execute('6LcolggsAAAAAIXx3zwptDhS2ArV8v29-Uc2x_Td', {action: 'submit'});
             
-            // **IMPORTANTE: SOLO METADATI, NESSUN FILE**
+            // **IMPORTANTE: ORA INVIAMO ANCHE IL FILE per Google Drive**
             const formData = new FormData();
             formData.append('name', name);
             formData.append('email', email);
@@ -92,13 +92,9 @@ document.addEventListener('DOMContentLoaded', function() {
             formData.append('bugSpecific', document.getElementById('bugSpecific').value);
             formData.append('description', description);
             formData.append('recaptchaToken', token);
-            
-            // **SOLO INFO FILE (METADATI) - NESSUN FILE CONTENT**
-            formData.append('fileName', file.name);
-            formData.append('fileSize', file.size.toString());
-            formData.append('fileType', file.type);
+            formData.append('clipFile', file); // FILE INCLUSO per Google Drive
 
-            // Send to API (SOLO metadati, pochi KB)
+            // Send to API (CON file per Google Drive)
             const response = await fetch('/api/upload', {
                 method: 'POST',
                 body: formData
@@ -112,18 +108,13 @@ document.addEventListener('DOMContentLoaded', function() {
             const result = await response.json();
 
             if (result.success) {
-                showMessage('✅ Submission received! Opening WeTransfer...', 'success');
-                
-                // Apri WeTransfer in nuova finestra
-                setTimeout(() => {
-                    window.open('https://wetransfer.com/', '_blank');
-                }, 1000);
+                showDriveSuccessMessage(file.name, result.submissionId, result.driveUrl);
                 
                 form.reset();
                 bugSpecificGroup.style.display = 'none';
                 fileInput.value = '';
             } else {
-                throw new Error(result.error || 'Submission failed');
+                throw new Error(result.error || 'Upload failed');
             }
         } catch (error) {
             console.error('Error:', error);
@@ -133,14 +124,56 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    // Funzione per mostrare successo Google Drive
+    function showDriveSuccessMessage(fileName, submissionId, driveUrl) {
+        const file = fileInput.files[0];
+        const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+        const fileSizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
+        const displaySize = file.size > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
+        
+        const html = `
+            <div style="text-align: center;">
+                <h3 style="color: #155724; margin-bottom: 15px;">🎬 Upload Successful!</h3>
+                
+                <div style="background: #d4edda; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: left;">
+                    <strong>✅ File uploaded to Google Drive!</strong><br>
+                    <strong>File:</strong> ${fileName} (${displaySize})<br>
+                    <strong>Submission ID:</strong> ${submissionId}<br>
+                    <strong>Status:</strong> Saved securely in Google Drive
+                </div>
+
+                <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: left;">
+                    <strong>📧 Notification Sent</strong><br>
+                    Alberto has been notified and can access your clip immediately in Google Drive.
+                </div>
+
+                ${driveUrl ? `
+                <a href="${driveUrl}" target="_blank" 
+                   style="background: #34a853; color: white; padding: 15px 30px; border-radius: 8px; 
+                          text-decoration: none; font-weight: bold; display: inline-block; margin: 10px 0;">
+                   👀 VIEW IN GOOGLE DRIVE
+                </a>
+                ` : ''}
+                
+                <div style="margin-top: 15px; font-size: 14px; color: #666;">
+                    Thank you for your submission! Your clip will be reviewed soon.
+                </div>
+            </div>
+        `;
+        
+        messageDiv.innerHTML = html;
+        messageDiv.className = 'message success';
+        messageDiv.style.display = 'block';
+    }
+
     function setLoading(loading) {
         if (loading) {
             submitBtn.disabled = true;
-            btnText.textContent = 'Processing...';
+            btnText.textContent = 'Uploading to Google Drive...';
             btnSpinner.style.display = 'block';
         } else {
             submitBtn.disabled = false;
-            btnText.textContent = 'Submit Clip Request';
+            btnText.textContent = 'Submit Clip to Google Drive';
             btnSpinner.style.display = 'none';
         }
     }
