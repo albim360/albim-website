@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clip Submission - albim.lol</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://www.google.com/recaptcha/api.js?render=6LephAgsAAAAAOBabRnNl9DZv8ljTB2WHOusHuK4"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎬 Submit Your Clip</h1>
+            <p>Share your clips with us!</p>
+        </header>
+
+        <form id="uploadForm" class="upload-form">
+            <div class="form-group">
+                <label for="name">Your Name/Nickname *</label>
+                <input type="text" id="name" name="name" required>
+            </div>
+
+            <div class="form-group">
+                <label for="email">Your Email *</label>
+                <input type="email" id="email" name="email" required>
+            </div>
+
+            <div class="form-group">
+                <label for="clipType">Clip Type *</label>
+                <select id="clipType" name="clipType" required>
+                    <option value="">Select type...</option>
+                    <option value="bug">Bug</option>
+                    <option value="funny">Funny Clip</option>
+                    <option value="error">Error</option>
+                    <option value="fail">Fail</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+
+            <div class="form-group" id="bugSpecificGroup" style="display: none;">
+                <label for="bugSpecific">If Bug, please specify which one</label>
+                <textarea id="bugSpecific" name="bugSpecific" placeholder="Describe the bug in detail..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="description">Clip Description *</label>
+                <textarea id="description" name="description" required placeholder="Describe what happens in your clip..."></textarea>
+            </div>
+
+            <div class="form-group">
+                <label for="clipFile">Upload Your Clip *</label>
+                <input type="file" id="clipFile" name="clipFile" accept="video/*" required>
+                <small>Max file size: 25MB. Supported formats: MP4, MOV, AVI, etc.</small>
+            </div>
+
+            <!-- Rights Agreement -->
+            <div class="rights-agreement">
+                <h3>📋 Rights & Permissions Agreement</h3>
+                <div class="agreement-content">
+                    <p><strong>By submitting your clip, you certify that:</strong></p>
+                    <ul>
+                        <li>✅ You are the sole owner of all rights to this clip</li>
+                        <li>✅ The clip is not protected by copyright or you have permission to use it</li>
+                        <li>✅ You grant Alberto Zappalà all rights to use this clip</li>
+                        <li>✅ The clip may be featured on YouTube channels</li>
+                        <li>✅ You waive any claims for compensation</li>
+                    </ul>
+                </div>
+                <label class="checkbox-label">
+                    <input type="checkbox" id="agreeRights" name="agreeRights" required>
+                    <span>I understand and agree to all terms above *</span>
+                </label>
+            </div>
+
+            <button type="submit" id="submitBtn" class="submit-btn">
+                <span id="btnText">Submit Clip</span>
+                <div id="btnSpinner" class="spinner" style="display: none;"></div>
+            </button>
+
+            <div id="message" class="message"></div>
+        </form>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
