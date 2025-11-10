@@ -65,7 +65,7 @@ form.addEventListener('submit', async function(e) {
 
     try {
         // Get reCAPTCHA v3 token
-        const token = await grecaptcha.execute('6LephAgsAAAAAC80hvaotX1CWEe14rgtLIAskZxO', {action: 'submit'});
+        const token = await grecaptcha.execute('6LcolggsAAAAAIXx3zwptDhS2ArV8v29-Uc2x_Td', {action: 'submit'});
         
         // Create FormData
         const formData = new FormData();
