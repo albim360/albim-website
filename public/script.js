@@ -37,68 +37,82 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    form.addEventListener('submit', async function(e) {
-        e.preventDefault();
+form.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    // Validate file
+    const file = fileInput.files[0];
+    if (!file) {
+        showMessage('Please select a clip file', 'error');
+        return;
+    }
+
+    // Validate file type
+    const validTypes = [
+        'video/mp4', 
+        'video/quicktime', 
+        'video/avi', 
+        'video/x-msvideo',
+        'video/x-matroska',
+        'video/webm'
+    ];
+    if (!validTypes.includes(file.type)) {
+        showMessage('Please upload a valid video file (MP4, MOV, AVI, MKV, WEBM)', 'error');
+        return;
+    }
+
+    setLoading(true);
+
+    try {
+        // Get reCAPTCHA v3 token
+        const token = await grecaptcha.execute('6LephAgsAAAAAC80hvaotX1CWEe14rgtLIAskZxO', {action: 'submit'});
         
-        // Validate file
-        const file = fileInput.files[0];
-        if (!file) {
-            showMessage('Please select a clip file', 'error');
-            return;
+        // Create FormData
+        const formData = new FormData();
+        formData.append('name', document.getElementById('name').value);
+        formData.append('email', document.getElementById('email').value);
+        formData.append('clipType', document.getElementById('clipType').value);
+        formData.append('bugSpecific', document.getElementById('bugSpecific').value);
+        formData.append('description', document.getElementById('description').value);
+        formData.append('clipFile', file);
+        formData.append('recaptchaToken', token);
+
+        // Send to API
+        const response = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData
+        });
+
+        // Check if response is OK
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Server error: ${response.status} - ${errorText}`);
         }
 
-        // Validate file type
-        const validTypes = [
-            'video/mp4', 
-            'video/quicktime', 
-            'video/avi', 
-            'video/x-msvideo',
-            'video/x-matroska',
-            'video/webm'
-        ];
-        if (!validTypes.includes(file.type)) {
-            showMessage('Please upload a valid video file (MP4, MOV, AVI, MKV, WEBM)', 'error');
-            return;
-        }
-
-        setLoading(true);
-
+        // Try to parse JSON response
+        let result;
         try {
-            // Get reCAPTCHA v3 token
-            const token = await grecaptcha.execute('6LcXjggsAAAAABvUpSfl_6O_iJSvhDTctbw_TIaz', {action: 'submit'});
-            
-            // Create FormData
-            const formData = new FormData();
-            formData.append('name', document.getElementById('name').value);
-            formData.append('email', document.getElementById('email').value);
-            formData.append('clipType', document.getElementById('clipType').value);
-            formData.append('bugSpecific', document.getElementById('bugSpecific').value);
-            formData.append('description', document.getElementById('description').value);
-            formData.append('clipFile', file);
-            formData.append('recaptchaToken', token);
-
-            // Send to API
-            const response = await fetch('/api/upload', {
-                method: 'POST',
-                body: formData
-            });
-
-            const result = await response.json();
-
-            if (response.ok) {
-                showMessage('✅ Clip submitted successfully! Thank you!', 'success');
-                form.reset();
-                bugSpecificGroup.style.display = 'none';
-            } else {
-                throw new Error(result.error || 'Submission failed');
-            }
-        } catch (error) {
-            console.error('Error:', error);
-            showMessage(`❌ Error: ${error.message}`, 'error');
-        } finally {
-            setLoading(false);
+            result = await response.json();
+        } catch (jsonError) {
+            throw new Error('Invalid response from server');
         }
-    });
+
+        if (result.success) {
+            showMessage('✅ ' + result.message, 'success');
+            form.reset();
+            bugSpecificGroup.style.display = 'none';
+            // Reset file input
+            fileInput.value = '';
+        } else {
+            throw new Error(result.error || 'Submission failed');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        showMessage(`❌ Error: ${error.message}`, 'error');
+    } finally {
+        setLoading(false);
+    }
+});
 
     function setLoading(loading) {
         if (loading) {
