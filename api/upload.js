@@ -84,8 +84,7 @@ module.exports = async (req, res) => {
     res.status(200).json({ 
       success: true, 
       message: 'Submission received! Open WeTransfer to upload your file.',
-      submissionId: submissionId,
-      weTransferUrl: 'https://wetransfer.com/'
+      submissionId: submissionId
     });
 
   } catch (error) {
@@ -96,9 +95,10 @@ module.exports = async (req, res) => {
   }
 };
 
-// Funzione per inviare email di notifica
+// Funzione per inviare email di notifica - CORRETTA
 async function sendEmailNotification(name, email, clipType, bugSpecific, description, fileName, fileSize, fileType, submissionId) {
-  const transporter = nodemailer.createTransporter({
+  // CORREZIONE: usa createTransport invece di createTransporter
+  const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
       user: process.env.EMAIL_USER,
