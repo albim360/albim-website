@@ -65,7 +65,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         try {
             // Get reCAPTCHA v3 token
-            const token = await grecaptcha.execute('6LephAgsAAAAAC80hvaotX1CWEe14rgtLIAskZxO', {action: 'submit'});
+            const token = await grecaptcha.execute('6LcXjggsAAAAABvUpSfl_6O_iJSvhDTctbw_TIaz', {action: 'submit'});
             
             // Create FormData
             const formData = new FormData();
