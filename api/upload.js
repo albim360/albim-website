@@ -2,6 +2,7 @@ const nodemailer = require('nodemailer');
 const fetch = require('node-fetch');
 const formidable = require('formidable');
 const { google } = require('googleapis');
+const fs = require('fs');
 
 module.exports = async (req, res) => {
   // Enable CORS
@@ -19,7 +20,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // Parse form data CON file (finalmente!)
+    // Parse form data CON file
     const form = formidable({
       maxFileSize: 2 * 1024 * 1024 * 1024, // 2GB
       multiples: false
@@ -38,6 +39,9 @@ module.exports = async (req, res) => {
         }
       });
     });
+
+    console.log('Fields received:', Object.keys(fields));
+    console.log('Files received:', Object.keys(files));
 
     // Verify reCAPTCHA
     const recaptchaToken = Array.isArray(fields.recaptchaToken) ? fields.recaptchaToken[0] : fields.recaptchaToken;
@@ -62,16 +66,10 @@ module.exports = async (req, res) => {
     const clipType = Array.isArray(fields.clipType) ? fields.clipType[0] : fields.clipType;
     const bugSpecific = Array.isArray(fields.bugSpecific) ? fields.bugSpecific[0] : fields.bugSpecific;
     const description = Array.isArray(fields.description) ? fields.description[0] : fields.description;
-    
-    const clipFile = files.clipFile;
-
-    if (!clipFile) {
-      return res.status(400).json({ error: 'No clip file provided' });
-    }
 
     // Validations
     if (!name || !email || !description) {
-      return res.status(400).json({ error: 'Missing required fields' });
+      return res.status(400).json({ error: 'Missing required fields: name, email, description' });
     }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -79,20 +77,28 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'Invalid email address' });
     }
 
+    // Check if file exists - CORREZIONE QUI
+    const clipFile = files.clipFile;
+    if (!clipFile || !clipFile[0]) {
+      console.log('No clip file found in files:', files);
+      return res.status(400).json({ error: 'No clip file provided' });
+    }
+
+    const file = clipFile[0]; // Prendi il primo file
+
     const submissionId = 'sub_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
     // Upload to Google Drive
-    const driveResult = await uploadToGoogleDrive(clipFile, name, email, description, submissionId);
+    const driveResult = await uploadToGoogleDrive(file, name, email, description, submissionId);
 
     // Send email notification
-    await sendEmailNotification(name, email, clipType, bugSpecific, description, clipFile, submissionId, driveResult);
+    await sendEmailNotification(name, email, clipType, bugSpecific, description, file, submissionId, driveResult);
 
     res.status(200).json({ 
       success: true, 
       message: 'Clip uploaded successfully to Google Drive!',
       submissionId: submissionId,
-      driveUrl: driveResult.webViewLink,
-      downloadUrl: driveResult.webContentLink
+      driveUrl: driveResult.webViewLink
     });
 
   } catch (error) {
@@ -111,7 +117,7 @@ module.exports = async (req, res) => {
 };
 
 // Upload file to Google Drive
-async function uploadToGoogleDrive(clipFile, name, email, description, submissionId) {
+async function uploadToGoogleDrive(file, name, email, description, submissionId) {
   try {
     // Configura l'autenticazione Google Drive
     const auth = new google.auth.GoogleAuth({
@@ -130,14 +136,14 @@ async function uploadToGoogleDrive(clipFile, name, email, description, submissio
 
     // Crea i metadata del file
     const fileMetadata = {
-      name: `${submissionId}_${clipFile.originalFilename}`,
+      name: `${submissionId}_${file.originalFilename}`,
       description: `Clip submission from ${name} (${email})\n\nDescription: ${description}\nSubmission ID: ${submissionId}`,
-      parents: [process.env.GOOGLE_DRIVE_FOLDER_ID] // Cartella specifica dove salvare
+      parents: [process.env.GOOGLE_DRIVE_FOLDER_ID]
     };
 
     const media = {
-      mimeType: clipFile.mimetype,
-      body: require('fs').createReadStream(clipFile.filepath)
+      mimeType: file.mimetype,
+      body: fs.createReadStream(file.filepath)
     };
 
     // Upload del file
@@ -157,7 +163,7 @@ async function uploadToGoogleDrive(clipFile, name, email, description, submissio
     });
 
     // Pulisci il file temporaneo
-    require('fs').unlinkSync(clipFile.filepath);
+    fs.unlinkSync(file.filepath);
 
     return {
       fileId: response.data.id,
@@ -175,7 +181,7 @@ async function uploadToGoogleDrive(clipFile, name, email, description, submissio
 }
 
 // Send email notification
-async function sendEmailNotification(name, userEmail, clipType, bugSpecific, description, clipFile, submissionId, driveResult) {
+async function sendEmailNotification(name, userEmail, clipType, bugSpecific, description, file, submissionId, driveResult) {
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
@@ -194,9 +200,9 @@ async function sendEmailNotification(name, userEmail, clipType, bugSpecific, des
   };
 
   // Calculate file size for display
-  const fileSizeMB = (clipFile.size / (1024 * 1024)).toFixed(2);
-  const fileSizeGB = (clipFile.size / (1024 * 1024 * 1024)).toFixed(2);
-  const displaySize = clipFile.size > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
+  const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+  const fileSizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
+  const displaySize = file.size > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
 
   const mailOptions = {
     from: process.env.EMAIL_USER,
@@ -246,7 +252,7 @@ async function sendEmailNotification(name, userEmail, clipType, bugSpecific, des
                   
                   <div class="field">
                       <span class="label">📁 File Uploaded:</span>
-                      <span class="value">${clipFile.originalFilename} (${displaySize})</span>
+                      <span class="value">${file.originalFilename} (${displaySize})</span>
                   </div>
                   
                   <div class="drive-box">
