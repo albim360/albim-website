@@ -18,13 +18,28 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // File size validation
     const fileInput = document.getElementById('clipFile');
+    const fileSizeInfo = document.createElement('small');
+    fileSizeInfo.style.display = 'block';
+    fileSizeInfo.style.marginTop = '5px';
+    fileSizeInfo.style.color = '#666';
+    fileSizeInfo.textContent = 'Max file size: 1GB. Supported formats: MP4, MOV, AVI, MKV, etc.';
+    fileInput.parentNode.appendChild(fileSizeInfo);
+
     fileInput.addEventListener('change', function() {
         const file = this.files[0];
         if (file) {
-            const maxSize = 25 * 1024 * 1024; // 25MB
+            const maxSize = 1 * 1024 * 1024 * 1024; // 1GB
             if (file.size > maxSize) {
-                showMessage('File size must be less than 25MB', 'error');
+                showMessage('File size must be less than 1GB', 'error');
                 this.value = '';
+            } else {
+                const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+                const fileSizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
+                if (file.size > 1024 * 1024 * 1024) {
+                    showMessage(`File selected: ${fileSizeGB} GB`, 'success');
+                } else {
+                    showMessage(`File selected: ${fileSizeMB} MB`, 'success');
+                }
             }
         }
     });
@@ -40,9 +55,16 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         // Validate file type
-        const validTypes = ['video/mp4', 'video/quicktime', 'video/avi', 'video/x-msvideo'];
+        const validTypes = [
+            'video/mp4', 
+            'video/quicktime', 
+            'video/avi', 
+            'video/x-msvideo',
+            'video/x-matroska',
+            'video/webm'
+        ];
         if (!validTypes.includes(file.type)) {
-            showMessage('Please upload a valid video file (MP4, MOV, AVI)', 'error');
+            showMessage('Please upload a valid video file (MP4, MOV, AVI, MKV, WEBM)', 'error');
             return;
         }
 
@@ -50,7 +72,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         try {
             // Get reCAPTCHA token
-            const token = await grecaptcha.execute('6LephAgsAAAAAOBabRnNl9DZv8ljTB2WHOusHuK4', {action: 'submit'});
+            const token = await grecaptcha.execute('6LephAgsAAAAAC80hvaotX1CWEe14rgtLIAskZxO', {action: 'submit'});
             
             // Create FormData
             const formData = new FormData();
