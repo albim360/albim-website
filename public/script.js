@@ -300,39 +300,39 @@ function showMessage(text, type) {
 }
 
 // ✅ FUNZIONE PER SUCCESSO MEGA
-function showMegaSuccessMessage(fileName, submissionId) {
+function showMegaSuccessMessage(fileName, submissionId, downloadUrl) {
     const fileInput = document.getElementById('clipFile');
     const file = fileInput.files[0];
-    let displaySize = '0 MB';
-    
-    if (file) {
-        const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
-        const fileSizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
-        displaySize = file.size > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
-    }
+    const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+    const fileSizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
+    const displaySize = file.size > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
     
     const html = `
         <div style="text-align: center;">
-            <h3 style="color: #155724; margin-bottom: 15px;">✅ Submission Received!</h3>
+            <h3 style="color: #155724; margin-bottom: 15px;">🎬 Upload Successful to MEGA!</h3>
             
             <div style="background: #d4edda; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: left;">
-                <strong>📧 Check your email!</strong><br>
-                We've sent you upload instructions for MEGA.<br>
+                <strong>✅ File uploaded to MEGA!</strong><br>
                 <strong>File:</strong> ${fileName} (${displaySize})<br>
-                <strong>Submission ID:</strong> ${submissionId}
+                <strong>Submission ID:</strong> ${submissionId}<br>
+                <strong>Status:</strong> Saved securely in MEGA cloud
             </div>
 
             <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: left;">
-                <strong>📤 Next Steps:</strong>
-                <ol style="text-align: left; margin: 10px 0;">
-                    <li>Check your email for MEGA upload instructions</li>
-                    <li>Upload your clip when requested</li>
-                    <li>Share the download link with us</li>
-                </ol>
+                <strong>📧 Notification Sent</strong><br>
+                Alberto has been notified and can download your clip immediately from MEGA.
             </div>
+
+            ${downloadUrl ? `
+            <a href="${downloadUrl}" target="_blank" 
+               style="background: #d32f2f; color: white; padding: 15px 30px; border-radius: 8px; 
+                      text-decoration: none; font-weight: bold; display: inline-block; margin: 10px 0;">
+               📥 DOWNLOAD FROM MEGA
+            </a>
+            ` : ''}
             
             <div style="margin-top: 15px; font-size: 14px; color: #666;">
-                Thank you for your submission! We'll contact you soon.
+                Thank you for your submission! Your clip will be reviewed soon.
             </div>
         </div>
     `;
@@ -343,6 +343,12 @@ function showMegaSuccessMessage(fileName, submissionId) {
     messageDiv.style.display = 'block';
 }
 
+// E nel form submit, cambia questa parte:
+if (result.success) {
+    showMegaSuccessMessage(file.name, result.submissionId, result.downloadUrl);
+    form.reset();
+    resetForm();
+}
 function resetForm() {
     currentStep = 1;
     
