@@ -6,10 +6,11 @@
     "dev": "vercel dev"
   },
   "dependencies": {
-    "nodemailer": "^6.9.4",
-    "node-fetch": "^2.6.7",
     "formidable": "^2.1.1",
-    "googleapis": "^126.0.1"
+    "googleapis": "^126.0.1",
+    "mega": "^0.2.0",
+    "node-fetch": "^2.6.7",
+    "nodemailer": "^6.9.4"
   },
   "devDependencies": {
     "vercel": "^28.16.0"

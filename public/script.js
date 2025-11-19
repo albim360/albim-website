@@ -75,6 +75,9 @@ document.addEventListener('DOMContentLoaded', function() {
     const nextBtn = document.getElementById('nextBtn');
     const fileName = document.getElementById('fileName');
     const fileSize = document.getElementById('fileSize');
+    const clipTypeSelect = document.getElementById('clipType');
+    const bugSpecificGroup = document.getElementById('bugSpecificGroup');
+    const form = document.getElementById('uploadForm');
 
     // Click sulla upload zone
     uploadZone.addEventListener('click', function() {
@@ -103,6 +106,88 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Cambio file
     fileInput.addEventListener('change', handleFileSelection);
+
+    // Mostra/nascondi campo bug
+    clipTypeSelect.addEventListener('change', function() {
+        if (this.value === 'bug') {
+            bugSpecificGroup.style.display = 'block';
+        } else {
+            bugSpecificGroup.style.display = 'none';
+        }
+    });
+
+    // Submit form
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        console.log('Form submission started...');
+        
+        if (!validateStep2()) {
+            return;
+        }
+
+        const agreeRights = document.getElementById('agreeRights');
+        if (!agreeRights.checked) {
+            showMessage('You must agree to the rights agreement', 'error');
+            return;
+        }
+
+        setLoading(true);
+
+        try {
+            // Validazione file
+            const fileInput = document.getElementById('clipFile');
+            const file = fileInput.files[0];
+            if (!file) {
+                showMessage('Please select a clip file', 'error');
+                setLoading(false);
+                return;
+            }
+
+            console.log('Getting reCAPTCHA token...');
+            const token = await grecaptcha.execute('6LcolggsAAAAAIXx3zwptDhS2ArV8v29-Uc2x_Td', {action: 'submit'});
+            
+            console.log('Creating FormData...');
+            const formData = new FormData();
+            formData.append('name', document.getElementById('name').value);
+            formData.append('email', document.getElementById('email').value);
+            formData.append('clipType', document.getElementById('clipType').value);
+            formData.append('bugSpecific', document.getElementById('bugSpecific').value);
+            formData.append('description', document.getElementById('description').value);
+            formData.append('recaptchaToken', token);
+            formData.append('clipFile', file);
+
+            console.log('Sending to API...');
+            const response = await fetch('/api/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            console.log('Response status:', response.status);
+            
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error('Server error:', errorText);
+                throw new Error(`Server error: ${response.status} - ${errorText}`);
+            }
+
+            const result = await response.json();
+            console.log('Success:', result);
+
+            if (result.success) {
+                showMegaSuccessMessage(file.name, result.submissionId, result.downloadUrl);
+                form.reset();
+                resetForm();
+            } else {
+                throw new Error(result.error || 'Upload failed');
+            }
+        } catch (error) {
+            console.error('Error:', error);
+            showMessage(`❌ Error: ${error.message}`, 'error');
+        } finally {
+            setLoading(false);
+        }
+    });
 });
 
 function handleFileSelection() {
@@ -186,78 +271,6 @@ function updateReview() {
     document.getElementById('reviewDescription').textContent = document.getElementById('description').value;
 }
 
-// Gestione form submit (esistente ma migliorato)
-document.addEventListener('DOMContentLoaded', function() {
-    const form = document.getElementById('uploadForm');
-    const clipTypeSelect = document.getElementById('clipType');
-    const bugSpecificGroup = document.getElementById('bugSpecificGroup');
-
-    // Mostra/nascondi campo bug
-    clipTypeSelect.addEventListener('change', function() {
-        if (this.value === 'bug') {
-            bugSpecificGroup.style.display = 'block';
-        } else {
-            bugSpecificGroup.style.display = 'none';
-        }
-    });
-
-    // Submit form
-    form.addEventListener('submit', async function(e) {
-        e.preventDefault();
-        
-        if (!validateStep2()) {
-            return;
-        }
-
-        const agreeRights = document.getElementById('agreeRights');
-        if (!agreeRights.checked) {
-            showMessage('You must agree to the rights agreement', 'error');
-            return;
-        }
-
-        setLoading(true);
-
-        try {
-            // Il resto del tuo codice di submit rimane uguale...
-            const token = await grecaptcha.execute('6LcolggsAAAAAIXx3zwptDhS2ArV8v29-Uc2x_Td', {action: 'submit'});
-            
-            const formData = new FormData();
-            formData.append('name', document.getElementById('name').value);
-            formData.append('email', document.getElementById('email').value);
-            formData.append('clipType', document.getElementById('clipType').value);
-            formData.append('bugSpecific', document.getElementById('bugSpecific').value);
-            formData.append('description', document.getElementById('description').value);
-            formData.append('recaptchaToken', token);
-            formData.append('clipFile', document.getElementById('clipFile').files[0]);
-
-            const response = await fetch('/api/upload', {
-                method: 'POST',
-                body: formData
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Server error: ${response.status} - ${errorText}`);
-            }
-
-            const result = await response.json();
-
-            if (result.success) {
-                showSuccessMessage(result.submissionId);
-                form.reset();
-                resetForm();
-            } else {
-                throw new Error(result.error || 'Upload failed');
-            }
-        } catch (error) {
-            console.error('Error:', error);
-            showMessage(`❌ Error: ${error.message}`, 'error');
-        } finally {
-            setLoading(false);
-        }
-    });
-});
-
 function setLoading(loading) {
     const submitBtn = document.getElementById('submitBtn');
     const btnText = document.getElementById('btnText');
@@ -265,11 +278,11 @@ function setLoading(loading) {
     
     if (loading) {
         submitBtn.disabled = true;
-        btnText.textContent = 'Uploading...';
+        btnText.textContent = 'Uploading to MEGA...';
         btnSpinner.style.display = 'block';
     } else {
         submitBtn.disabled = false;
-        btnText.textContent = '🎬 Submit Clip';
+        btnText.textContent = '🎬 Submit Clip to MEGA';
         btnSpinner.style.display = 'none';
     }
 }
@@ -285,16 +298,46 @@ function showMessage(text, type) {
     }, 5000);
 }
 
-function showSuccessMessage(submissionId) {
-    const messageDiv = document.getElementById('message');
-    messageDiv.innerHTML = `
+// ✅ NUOVA FUNZIONE PER SUCCESSO MEGA
+function showMegaSuccessMessage(fileName, submissionId, downloadUrl) {
+    const fileInput = document.getElementById('clipFile');
+    const file = fileInput.files[0];
+    const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+    const fileSizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
+    const displaySize = file.size > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
+    
+    const html = `
         <div style="text-align: center;">
-            <h3 style="color: #155724; margin-bottom: 15px;">✅ Upload Successful!</h3>
-            <p>Your clip has been submitted successfully.</p>
-            <p><strong>Submission ID:</strong> ${submissionId}</p>
-            <p>Thank you for your submission!</p>
+            <h3 style="color: #155724; margin-bottom: 15px;">🎬 Upload Successful to MEGA!</h3>
+            
+            <div style="background: #d4edda; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: left;">
+                <strong>✅ File uploaded to MEGA!</strong><br>
+                <strong>File:</strong> ${fileName} (${displaySize})<br>
+                <strong>Submission ID:</strong> ${submissionId}<br>
+                <strong>Status:</strong> Saved securely in MEGA cloud
+            </div>
+
+            <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: left;">
+                <strong>📧 Notification Sent</strong><br>
+                Alberto has been notified and can download your clip immediately from MEGA.
+            </div>
+
+            ${downloadUrl ? `
+            <a href="${downloadUrl}" target="_blank" 
+               style="background: #d32f2f; color: white; padding: 15px 30px; border-radius: 8px; 
+                      text-decoration: none; font-weight: bold; display: inline-block; margin: 10px 0;">
+               📥 DOWNLOAD FROM MEGA
+            </a>
+            ` : ''}
+            
+            <div style="margin-top: 15px; font-size: 14px; color: #666;">
+                Thank you for your submission! Your clip will be reviewed soon.
+            </div>
         </div>
     `;
+    
+    const messageDiv = document.getElementById('message');
+    messageDiv.innerHTML = html;
     messageDiv.className = 'message success';
     messageDiv.style.display = 'block';
 }

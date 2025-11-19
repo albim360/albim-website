@@ -1,7 +1,7 @@
 const nodemailer = require('nodemailer');
 const fetch = require('node-fetch');
 const formidable = require('formidable');
-const { google } = require('googleapis');
+const mega = require('mega');
 const fs = require('fs');
 
 module.exports = async (req, res) => {
@@ -20,7 +20,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // Parse form data - CORREZIONE QUI
+    // Parse form data
     const form = formidable({
       maxFileSize: 2 * 1024 * 1024 * 1024, // 2GB
       multiples: false
@@ -77,7 +77,7 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'Invalid email address' });
     }
 
-    // Check if file exists - CORREZIONE CRITICA QUI
+    // Check if file exists
     const clipFile = files.clipFile;
     if (!clipFile) {
       console.log('No clip file found in files:', files);
@@ -86,17 +86,17 @@ module.exports = async (req, res) => {
 
     const submissionId = 'sub_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
-    // Upload to Google Drive
-    const driveResult = await uploadToGoogleDrive(clipFile, name, email, description, submissionId);
+    // Upload to MEGA
+    const megaResult = await uploadToMega(clipFile, name, email, description, submissionId);
 
     // Send email notification
-    await sendEmailNotification(name, email, clipType, bugSpecific, description, clipFile, submissionId, driveResult);
+    await sendEmailNotification(name, email, clipType, bugSpecific, description, clipFile, submissionId, megaResult);
 
     res.status(200).json({ 
       success: true, 
-      message: 'Clip uploaded successfully to Google Drive!',
+      message: 'Clip uploaded successfully to MEGA!',
       submissionId: submissionId,
-      driveUrl: driveResult.webViewLink
+      downloadUrl: megaResult.downloadUrl
     });
 
   } catch (error) {
@@ -114,182 +114,212 @@ module.exports = async (req, res) => {
   }
 };
 
-// Upload file to Google Drive - CORREZIONE QUI
-async function uploadToGoogleDrive(file, name, email, description, submissionId) {
+// ✅ FUNZIONE UPLOAD SU MEGA
+async function uploadToMega(file, name, email, description, submissionId) {
   try {
-    // Configura l'autenticazione Google Drive
-    const auth = new google.auth.GoogleAuth({
-      credentials: {
-        type: 'service_account',
-        project_id: process.env.GOOGLE_PROJECT_ID,
-        private_key_id: process.env.GOOGLE_PRIVATE_KEY_ID,
-        private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-        client_email: process.env.GOOGLE_CLIENT_EMAIL,
-        client_id: process.env.GOOGLE_CLIENT_ID,
-      },
-      scopes: ['https://www.googleapis.com/auth/drive.file']
+    console.log('Starting MEGA upload...');
+    
+    // Configura MEGA
+    const storage = mega({
+      email: process.env.MEGA_EMAIL,
+      password: process.env.MEGA_PASSWORD
     });
 
-    const drive = google.drive({ version: 'v3', auth });
+    // Attendiamo il login
+    await storage.ready;
+    console.log('Logged into MEGA successfully');
 
-    // Crea i metadata del file
-    const fileMetadata = {
-      name: `${submissionId}_${file.originalFilename}`,
-      description: `Clip submission from ${name} (${email})\n\nDescription: ${description}\nSubmission ID: ${submissionId}`,
-      parents: [process.env.GOOGLE_DRIVE_FOLDER_ID]
-    };
-
-    const media = {
-      mimeType: file.mimetype,
-      body: fs.createReadStream(file.filepath)
-    };
+    // Crea una cartella con il submission ID
+    const folderName = `Clip_Submission_${submissionId}`;
+    const folder = await storage.mkdir(folderName);
+    console.log('Created folder:', folderName);
 
     // Upload del file
-    const response = await drive.files.create({
-      resource: fileMetadata,
-      media: media,
-      fields: 'id, name, webViewLink, webContentLink, mimeType, size'
-    });
+    console.log('Uploading file to MEGA...');
+    const uploadedFile = await storage.upload(file.originalFilename, file.filepath, folder);
+    console.log('File uploaded successfully:', uploadedFile);
 
-    // Rendi il file pubblico
-    await drive.permissions.create({
-      fileId: response.data.id,
-      requestBody: {
-        role: 'reader',
-        type: 'anyone'
-      }
-    });
+    // Ottieni il link di download pubblico
+    const downloadUrl = await storage.link(uploadedFile);
+    console.log('Download URL:', downloadUrl);
 
     // Pulisci il file temporaneo
     fs.unlinkSync(file.filepath);
 
     return {
-      fileId: response.data.id,
-      fileName: response.data.name,
-      webViewLink: response.data.webViewLink,
-      webContentLink: response.data.webContentLink,
-      mimeType: response.data.mimeType,
-      size: response.data.size
+      fileName: file.originalFilename,
+      downloadUrl: downloadUrl,
+      folderName: folderName
     };
 
   } catch (error) {
-    console.error('Google Drive upload error:', error);
-    throw new Error('Failed to upload to Google Drive: ' + error.message);
+    console.error('MEGA upload error:', error);
+    
+    // Pulisci il file temporaneo anche in caso di errore
+    try {
+      if (file && file.filepath) {
+        fs.unlinkSync(file.filepath);
+      }
+    } catch (cleanupError) {
+      console.error('Error cleaning up temp file:', cleanupError);
+    }
+    
+    throw new Error('Failed to upload to MEGA: ' + error.message);
   }
 }
 
-// Send email notification - CORREZIONE QUI
-async function sendEmailNotification(name, userEmail, clipType, bugSpecific, description, file, submissionId, driveResult) {
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS
-    }
-  });
+// ✅ FUNZIONE ALTERNATIVA SE IL PACCHETTO MEGA NON FUNZIONA
+async function uploadToMegaAlternative(file, name, email, description, submissionId) {
+  try {
+    // Usa l'API Web di MEGA
+    const MEGA = require('megajs');
+    
+    const storage = await MEGA.login({
+      email: process.env.MEGA_EMAIL,
+      password: process.env.MEGA_PASSWORD
+    });
 
-  // Format clip type for display
-  const clipTypeLabels = {
-    funny: '😂 Funny Moment',
-    epic: '🔥 Epic Play', 
-    bug: '🐛 Game Bug',
-    fail: '💥 Funny Fail',
-    other: '📁 Other'
-  };
+    // Crea cartella
+    const root = storage.root;
+    const folder = await root.mkdir(`Clip_Submission_${submissionId}`);
+    
+    // Upload file
+    const uploadedFile = await folder.upload(file.originalFilename, fs.createReadStream(file.filepath));
+    
+    // Ottieni link
+    const downloadUrl = await uploadedFile.link();
+    
+    // Logout
+    storage.close();
 
-  // Calculate file size for display
-  const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
-  const fileSizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
-  const displaySize = file.size > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
+    // Pulisci file temporaneo
+    fs.unlinkSync(file.filepath);
 
-  const mailOptions = {
-    from: process.env.EMAIL_USER,
-    to: 'alberto.zappala360@gmail.com',
-    subject: `🎬 NEW CLIP UPLOADED: ${clipTypeLabels[clipType] || clipType} - ${submissionId}`,
-    html: `
-      <!DOCTYPE html>
-      <html>
-      <head>
-          <style>
-              body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-              .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-              .header { background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-              .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
-              .field { margin-bottom: 15px; }
-              .label { font-weight: bold; color: #2d3436; }
-              .value { color: #636e72; }
-              .rights-box { background: #e8f5e8; border-left: 4px solid #00b894; padding: 15px; margin: 20px 0; }
-              .drive-box { background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 20px 0; }
-              .download-btn { background: #34a853; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; margin: 10px 5px; }
-              .view-btn { background: #4285f4; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; margin: 10px 5px; }
-          </style>
-      </head>
-      <body>
-          <div class="container">
-              <div class="header">
-                  <h1>🎬 Clip Successfully Uploaded!</h1>
-                  <p>Automatically saved to Google Drive</p>
-              </div>
-              <div class="content">
-                  <div class="field">
-                      <span class="label">👤 Submitted by:</span>
-                      <span class="value">${name} (${userEmail})</span>
-                  </div>
-                  
-                  <div class="field">
-                      <span class="label">🎮 Clip Type:</span>
-                      <span class="value">${clipTypeLabels[clipType] || clipType}</span>
-                  </div>
-                  
-                  <div class="field">
-                      <span class="label">📝 Description:</span>
-                      <span class="value">${description}</span>
-                  </div>
-                  
-                  ${bugSpecific ? `
-                  <div class="field">
-                      <span class="label">🐛 Bug Details:</span>
-                      <span class="value">${bugSpecific}</span>
-                  </div>
-                  ` : ''}
-                  
-                  <div class="field">
-                      <span class="label">📁 File Uploaded:</span>
-                      <span class="value">${file.originalFilename} (${displaySize})</span>
-                  </div>
-                  
-                  <div class="drive-box">
-                      <strong>☁️ Stored in Google Drive</strong><br>
-                      File automatically uploaded and secured in your Google Drive.<br>
-                      <strong>Submission ID:</strong> ${submissionId}<br>
-                      <strong>Drive File ID:</strong> ${driveResult.fileId}
-                  </div>
-                  
-                  <div style="text-align: center; margin: 25px 0;">
-                      <a href="${driveResult.webContentLink}" class="download-btn" target="_blank">
-                         📥 DOWNLOAD CLIP
-                      </a>
-                      <a href="${driveResult.webViewLink}" class="view-btn" target="_blank">
-                         👀 VIEW IN DRIVE
-                      </a>
-                  </div>
-                  
-                  <div class="rights-box">
-                      <strong>✅ Rights Agreement Confirmed</strong><br>
-                      User agreed to YouTube publication rights and copyright transfer.
-                  </div>
-                  
-                  <div style="text-align: center; margin-top: 25px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
-                      <strong>Upload Time:</strong> ${new Date().toLocaleString('it-IT')}<br>
-                      <strong>Submission ID:</strong> ${submissionId}<br>
-                      <strong>File Size:</strong> ${displaySize}
-                  </div>
-              </div>
-          </div>
-      </body>
-      </html>
-    `
-  };
+    return {
+      fileName: file.originalFilename,
+      downloadUrl: downloadUrl
+    };
 
-  await transporter.sendMail(mailOptions);
+  } catch (error) {
+    throw new Error('MEGA alternative upload failed: ' + error.message);
+  }
+}
+
+// Send email notification per MEGA
+async function sendEmailNotification(name, userEmail, clipType, bugSpecific, description, file, submissionId, megaResult) {
+  try {
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
+    });
+
+    // Format clip type for display
+    const clipTypeLabels = {
+      funny: '😂 Funny Moment',
+      epic: '🔥 Epic Play', 
+      bug: '🐛 Game Bug',
+      fail: '💥 Funny Fail',
+      other: '📁 Other'
+    };
+
+    // Calculate file size for display
+    const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+    const fileSizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
+    const displaySize = file.size > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
+
+    const mailOptions = {
+      from: process.env.EMAIL_USER,
+      to: 'alberto.zappala360@gmail.com',
+      subject: `🎬 NEW CLIP UPLOADED TO MEGA: ${clipTypeLabels[clipType] || clipType} - ${submissionId}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                .header { background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+                .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
+                .field { margin-bottom: 15px; }
+                .label { font-weight: bold; color: #2d3436; }
+                .value { color: #636e72; }
+                .rights-box { background: #e8f5e8; border-left: 4px solid #00b894; padding: 15px; margin: 20px 0; }
+                .mega-box { background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 20px 0; }
+                .download-btn { background: #34a853; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; margin: 10px 5px; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🎬 Clip Successfully Uploaded!</h1>
+                    <p>Automatically saved to MEGA</p>
+                </div>
+                <div class="content">
+                    <div class="field">
+                        <span class="label">👤 Submitted by:</span>
+                        <span class="value">${name} (${userEmail})</span>
+                    </div>
+                    
+                    <div class="field">
+                        <span class="label">🎮 Clip Type:</span>
+                        <span class="value">${clipTypeLabels[clipType] || clipType}</span>
+                    </div>
+                    
+                    <div class="field">
+                        <span class="label">📝 Description:</span>
+                        <span class="value">${description}</span>
+                    </div>
+                    
+                    ${bugSpecific ? `
+                    <div class="field">
+                        <span class="label">🐛 Bug Details:</span>
+                        <span class="value">${bugSpecific}</span>
+                    </div>
+                    ` : ''}
+                    
+                    <div class="field">
+                        <span class="label">📁 File Uploaded:</span>
+                        <span class="value">${file.originalFilename} (${displaySize})</span>
+                    </div>
+                    
+                    <div class="mega-box">
+                        <strong>☁️ Stored in MEGA</strong><br>
+                        File automatically uploaded and secured in your MEGA account.<br>
+                        <strong>Submission ID:</strong> ${submissionId}<br>
+                        <strong>Folder:</strong> ${megaResult.folderName || 'Clip Submissions'}
+                    </div>
+                    
+                    <div style="text-align: center; margin: 25px 0;">
+                        <a href="${megaResult.downloadUrl}" class="download-btn" target="_blank">
+                           📥 DOWNLOAD FROM MEGA
+                        </a>
+                    </div>
+                    
+                    <div class="rights-box">
+                        <strong>✅ Rights Agreement Confirmed</strong><br>
+                        User agreed to YouTube publication rights and copyright transfer.
+                    </div>
+                    
+                    <div style="text-align: center; margin-top: 25px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                        <strong>Upload Time:</strong> ${new Date().toLocaleString('it-IT')}<br>
+                        <strong>Submission ID:</strong> ${submissionId}<br>
+                        <strong>File Size:</strong> ${displaySize}
+                    </div>
+                </div>
+            </div>
+        </body>
+        </html>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log('Notification email sent successfully');
+    
+  } catch (error) {
+    console.error('Error sending email notification:', error);
+    // Non blocchiamo l'upload se l'email fallisce
+  }
 }
