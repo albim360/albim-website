@@ -1,7 +1,6 @@
 const nodemailer = require('nodemailer');
 const fetch = require('node-fetch');
 const formidable = require('formidable');
-const mega = require('mega');
 const fs = require('fs');
 
 module.exports = async (req, res) => {
@@ -86,17 +85,13 @@ module.exports = async (req, res) => {
 
     const submissionId = 'sub_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
-    // Upload to MEGA
-    const megaResult = await uploadToMega(clipFile, name, email, description, submissionId);
-
-    // Send email notification
-    await sendEmailNotification(name, email, clipType, bugSpecific, description, clipFile, submissionId, megaResult);
+    // ✅ SOLUZIONE SEMPLICE: Salva i dettagli e invia email, poi l'utente caricherà manualmente su Mega
+    await handleSubmission(name, email, clipType, bugSpecific, description, clipFile, submissionId);
 
     res.status(200).json({ 
       success: true, 
-      message: 'Clip uploaded successfully to MEGA!',
-      submissionId: submissionId,
-      downloadUrl: megaResult.downloadUrl
+      message: 'Submission received! We will contact you with upload instructions.',
+      submissionId: submissionId
     });
 
   } catch (error) {
@@ -114,99 +109,8 @@ module.exports = async (req, res) => {
   }
 };
 
-// ✅ FUNZIONE UPLOAD SU MEGA
-async function uploadToMega(file, name, email, description, submissionId) {
-  try {
-    console.log('Starting MEGA upload...');
-    
-    // Configura MEGA
-    const storage = mega({
-      email: process.env.MEGA_EMAIL,
-      password: process.env.MEGA_PASSWORD
-    });
-
-    // Attendiamo il login
-    await storage.ready;
-    console.log('Logged into MEGA successfully');
-
-    // Crea una cartella con il submission ID
-    const folderName = `Clip_Submission_${submissionId}`;
-    const folder = await storage.mkdir(folderName);
-    console.log('Created folder:', folderName);
-
-    // Upload del file
-    console.log('Uploading file to MEGA...');
-    const uploadedFile = await storage.upload(file.originalFilename, file.filepath, folder);
-    console.log('File uploaded successfully:', uploadedFile);
-
-    // Ottieni il link di download pubblico
-    const downloadUrl = await storage.link(uploadedFile);
-    console.log('Download URL:', downloadUrl);
-
-    // Pulisci il file temporaneo
-    fs.unlinkSync(file.filepath);
-
-    return {
-      fileName: file.originalFilename,
-      downloadUrl: downloadUrl,
-      folderName: folderName
-    };
-
-  } catch (error) {
-    console.error('MEGA upload error:', error);
-    
-    // Pulisci il file temporaneo anche in caso di errore
-    try {
-      if (file && file.filepath) {
-        fs.unlinkSync(file.filepath);
-      }
-    } catch (cleanupError) {
-      console.error('Error cleaning up temp file:', cleanupError);
-    }
-    
-    throw new Error('Failed to upload to MEGA: ' + error.message);
-  }
-}
-
-// ✅ FUNZIONE ALTERNATIVA SE IL PACCHETTO MEGA NON FUNZIONA
-async function uploadToMegaAlternative(file, name, email, description, submissionId) {
-  try {
-    // Usa l'API Web di MEGA
-    const MEGA = require('megajs');
-    
-    const storage = await MEGA.login({
-      email: process.env.MEGA_EMAIL,
-      password: process.env.MEGA_PASSWORD
-    });
-
-    // Crea cartella
-    const root = storage.root;
-    const folder = await root.mkdir(`Clip_Submission_${submissionId}`);
-    
-    // Upload file
-    const uploadedFile = await folder.upload(file.originalFilename, fs.createReadStream(file.filepath));
-    
-    // Ottieni link
-    const downloadUrl = await uploadedFile.link();
-    
-    // Logout
-    storage.close();
-
-    // Pulisci file temporaneo
-    fs.unlinkSync(file.filepath);
-
-    return {
-      fileName: file.originalFilename,
-      downloadUrl: downloadUrl
-    };
-
-  } catch (error) {
-    throw new Error('MEGA alternative upload failed: ' + error.message);
-  }
-}
-
-// Send email notification per MEGA
-async function sendEmailNotification(name, userEmail, clipType, bugSpecific, description, file, submissionId, megaResult) {
+// ✅ FUNZIONE SEMPLIFICATA - Solo email senza upload automatico
+async function handleSubmission(name, userEmail, clipType, bugSpecific, description, file, submissionId) {
   try {
     const transporter = nodemailer.createTransport({
       service: 'gmail',
@@ -230,10 +134,11 @@ async function sendEmailNotification(name, userEmail, clipType, bugSpecific, des
     const fileSizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
     const displaySize = file.size > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
 
-    const mailOptions = {
+    // Email per ALBIM
+    const albimMailOptions = {
       from: process.env.EMAIL_USER,
       to: 'alberto.zappala360@gmail.com',
-      subject: `🎬 NEW CLIP UPLOADED TO MEGA: ${clipTypeLabels[clipType] || clipType} - ${submissionId}`,
+      subject: `🎬 NEW CLIP SUBMISSION: ${clipTypeLabels[clipType] || clipType} - ${submissionId}`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -246,16 +151,15 @@ async function sendEmailNotification(name, userEmail, clipType, bugSpecific, des
                 .field { margin-bottom: 15px; }
                 .label { font-weight: bold; color: #2d3436; }
                 .value { color: #636e72; }
-                .rights-box { background: #e8f5e8; border-left: 4px solid #00b894; padding: 15px; margin: 20px 0; }
-                .mega-box { background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 20px 0; }
-                .download-btn { background: #34a853; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; margin: 10px 5px; }
+                .upload-box { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; }
+                .action-btn { background: #28a745; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; margin: 10px 5px; }
             </style>
         </head>
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>🎬 Clip Successfully Uploaded!</h1>
-                    <p>Automatically saved to MEGA</p>
+                    <h1>🎬 New Clip Submission!</h1>
+                    <p>Waiting for file upload</p>
                 </div>
                 <div class="content">
                     <div class="field">
@@ -281,30 +185,24 @@ async function sendEmailNotification(name, userEmail, clipType, bugSpecific, des
                     ` : ''}
                     
                     <div class="field">
-                        <span class="label">📁 File Uploaded:</span>
+                        <span class="label">📁 File Info:</span>
                         <span class="value">${file.originalFilename} (${displaySize})</span>
                     </div>
                     
-                    <div class="mega-box">
-                        <strong>☁️ Stored in MEGA</strong><br>
-                        File automatically uploaded and secured in your MEGA account.<br>
-                        <strong>Submission ID:</strong> ${submissionId}<br>
-                        <strong>Folder:</strong> ${megaResult.folderName || 'Clip Submissions'}
+                    <div class="upload-box">
+                        <strong>📤 ACTION REQUIRED:</strong><br>
+                        Contact ${userEmail} to receive the clip file via MEGA.<br>
+                        <strong>Submission ID:</strong> ${submissionId}
                     </div>
                     
                     <div style="text-align: center; margin: 25px 0;">
-                        <a href="${megaResult.downloadUrl}" class="download-btn" target="_blank">
-                           📥 DOWNLOAD FROM MEGA
+                        <a href="mailto:${userEmail}?subject=Clip Upload Instructions - ${submissionId}&body=Hi ${name},%0D%0A%0D%0APlease upload your clip to MEGA and share the download link.%0D%0A%0D%0AFile: ${file.originalFilename}%0D%0ASubmission ID: ${submissionId}%0D%0A%0D%0AThanks!" class="action-btn">
+                           📧 Email Upload Instructions
                         </a>
                     </div>
                     
-                    <div class="rights-box">
-                        <strong>✅ Rights Agreement Confirmed</strong><br>
-                        User agreed to YouTube publication rights and copyright transfer.
-                    </div>
-                    
                     <div style="text-align: center; margin-top: 25px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
-                        <strong>Upload Time:</strong> ${new Date().toLocaleString('it-IT')}<br>
+                        <strong>Submission Time:</strong> ${new Date().toLocaleString('it-IT')}<br>
                         <strong>Submission ID:</strong> ${submissionId}<br>
                         <strong>File Size:</strong> ${displaySize}
                     </div>
@@ -315,11 +213,79 @@ async function sendEmailNotification(name, userEmail, clipType, bugSpecific, des
       `
     };
 
-    await transporter.sendMail(mailOptions);
-    console.log('Notification email sent successfully');
+    // Email per l'utente (conferma)
+    const userMailOptions = {
+      from: process.env.EMAIL_USER,
+      to: userEmail,
+      subject: `🎬 Clip Submission Received - ${submissionId}`,
+      html: `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                .header { background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+                .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
+                .info-box { background: #d4edda; padding: 15px; border-radius: 8px; margin: 15px 0; }
+                .upload-steps { background: #e3f2fd; padding: 20px; border-radius: 8px; margin: 20px 0; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🎬 Submission Received!</h1>
+                    <p>Thank you for your clip submission</p>
+                </div>
+                <div class="content">
+                    <div class="info-box">
+                        <strong>✅ Submission Confirmed</strong><br>
+                        We've received your clip details and will contact you shortly with upload instructions.
+                    </div>
+                    
+                    <div class="upload-steps">
+                        <h3>📤 Next Steps:</h3>
+                        <ol>
+                            <li><strong>Wait for our email</strong> with MEGA upload instructions</li>
+                            <li><strong>Upload your clip</strong> to MEGA when requested</li>
+                            <li><strong>Share the download link</strong> with us</li>
+                            <li><strong>Your clip will be reviewed</strong> for potential feature</li>
+                        </ol>
+                    </div>
+                    
+                    <div style="text-align: center; margin-top: 25px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                        <strong>Submission ID:</strong> ${submissionId}<br>
+                        <strong>File:</strong> ${file.originalFilename} (${displaySize})<br>
+                        <strong>Submitted:</strong> ${new Date().toLocaleString('it-IT')}
+                    </div>
+                    
+                    <p style="text-align: center; margin-top: 20px; color: #666;">
+                        If you have any questions, reply to this email.
+                    </p>
+                </div>
+            </div>
+        </body>
+        </html>
+      `
+    };
+
+    // Invia entrambe le email
+    await transporter.sendMail(albimMailOptions);
+    await transporter.sendMail(userMailOptions);
+    
+    console.log('Notification emails sent successfully');
+    
+    // Pulisci il file temporaneo
+    try {
+      if (file && file.filepath) {
+        fs.unlinkSync(file.filepath);
+      }
+    } catch (cleanupError) {
+      console.error('Error cleaning up temp file:', cleanupError);
+    }
     
   } catch (error) {
     console.error('Error sending email notification:', error);
-    // Non blocchiamo l'upload se l'email fallisce
+    throw error;
   }
 }
