@@ -20,13 +20,13 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // Parse form data CON file
+    // Parse form data - CORREZIONE QUI
     const form = formidable({
       maxFileSize: 2 * 1024 * 1024 * 1024, // 2GB
       multiples: false
     });
 
-    const [fields, files] = await new Promise((resolve, reject) => {
+    const { fields, files } = await new Promise((resolve, reject) => {
       form.parse(req, (err, fields, files) => {
         if (err) {
           if (err.code === 'maxFileSizeExceeded') {
@@ -35,13 +35,13 @@ module.exports = async (req, res) => {
             reject(err);
           }
         } else {
-          resolve([fields, files]);
+          resolve({ fields, files });
         }
       });
     });
 
     console.log('Fields received:', Object.keys(fields));
-    console.log('Files received:', Object.keys(files));
+    console.log('Files received:', files);
 
     // Verify reCAPTCHA
     const recaptchaToken = Array.isArray(fields.recaptchaToken) ? fields.recaptchaToken[0] : fields.recaptchaToken;
@@ -77,22 +77,20 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'Invalid email address' });
     }
 
-    // Check if file exists - CORREZIONE QUI
+    // Check if file exists - CORREZIONE CRITICA QUI
     const clipFile = files.clipFile;
-    if (!clipFile || !clipFile[0]) {
+    if (!clipFile) {
       console.log('No clip file found in files:', files);
       return res.status(400).json({ error: 'No clip file provided' });
     }
 
-    const file = clipFile[0]; // Prendi il primo file
-
     const submissionId = 'sub_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
     // Upload to Google Drive
-    const driveResult = await uploadToGoogleDrive(file, name, email, description, submissionId);
+    const driveResult = await uploadToGoogleDrive(clipFile, name, email, description, submissionId);
 
     // Send email notification
-    await sendEmailNotification(name, email, clipType, bugSpecific, description, file, submissionId, driveResult);
+    await sendEmailNotification(name, email, clipType, bugSpecific, description, clipFile, submissionId, driveResult);
 
     res.status(200).json({ 
       success: true, 
@@ -116,7 +114,7 @@ module.exports = async (req, res) => {
   }
 };
 
-// Upload file to Google Drive
+// Upload file to Google Drive - CORREZIONE QUI
 async function uploadToGoogleDrive(file, name, email, description, submissionId) {
   try {
     // Configura l'autenticazione Google Drive
@@ -180,7 +178,7 @@ async function uploadToGoogleDrive(file, name, email, description, submissionId)
   }
 }
 
-// Send email notification
+// Send email notification - CORREZIONE QUI
 async function sendEmailNotification(name, userEmail, clipType, bugSpecific, description, file, submissionId, driveResult) {
   const transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -192,10 +190,10 @@ async function sendEmailNotification(name, userEmail, clipType, bugSpecific, des
 
   // Format clip type for display
   const clipTypeLabels = {
-    bug: '🐛 Bug',
-    funny: '😂 Funny Clip',
-    error: '❌ Error',
-    fail: '💥 Fail',
+    funny: '😂 Funny Moment',
+    epic: '🔥 Epic Play', 
+    bug: '🐛 Game Bug',
+    fail: '💥 Funny Fail',
     other: '📁 Other'
   };
 
@@ -236,6 +234,11 @@ async function sendEmailNotification(name, userEmail, clipType, bugSpecific, des
                   <div class="field">
                       <span class="label">👤 Submitted by:</span>
                       <span class="value">${name} (${userEmail})</span>
+                  </div>
+                  
+                  <div class="field">
+                      <span class="label">🎮 Clip Type:</span>
+                      <span class="value">${clipTypeLabels[clipType] || clipType}</span>
                   </div>
                   
                   <div class="field">
