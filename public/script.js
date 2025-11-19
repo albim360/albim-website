@@ -1,6 +1,3 @@
-// Inizializza EmailJS
-emailjs.init("AfY2qgV3ETueAukZ5");
-
 // Gestione Steps
 let currentStep = 1;
 
@@ -119,11 +116,11 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // ✅ SUBMIT FORM - SOLO EMAIL CON ISTRUZIONI MEGA
+    // ✅ SUBMIT FORM - SOLO SALVATAGGIO DATI E REDIRECT A MEGA
     form.addEventListener('submit', async function(e) {
         e.preventDefault();
         
-        console.log('=== MEGA UPLOAD PROCESS STARTED ===');
+        console.log('=== MEGA UPLOAD PREPARATION ===');
         
         if (!validateStep2()) {
             return;
@@ -145,7 +142,7 @@ document.addEventListener('DOMContentLoaded', function() {
         setLoading(true);
 
         try {
-            // ✅ Prepara i dati per l'email
+            // ✅ Prepara i dati della submission
             const submissionData = {
                 name: document.getElementById('name').value,
                 email: document.getElementById('email').value,
@@ -154,137 +151,241 @@ document.addEventListener('DOMContentLoaded', function() {
                 description: document.getElementById('description').value,
                 fileName: file.name,
                 fileSize: formatFileSize(file.size),
-                fileSizeBytes: file.size,
                 submissionId: 'sub_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-                uploadTime: new Date().toLocaleString('it-IT')
+                timestamp: new Date().toLocaleString('it-IT')
             };
 
-            console.log('Submission data:', submissionData);
+            console.log('Submission data prepared:', submissionData);
 
-            // ✅ Invia email di notifica ad Albim
-            console.log('Sending notification to Albim...');
-            await sendNotificationToAlbim(submissionData);
+            // ✅ Salva i dati localmente (opzionale)
+            saveSubmissionLocally(submissionData);
             
-            // ✅ Invia email di istruzioni all'utente
-            console.log('Sending instructions to user...');
-            await sendInstructionsToUser(submissionData);
+            // ✅ Redirect a MEGA per l'upload
+            redirectToMegaUpload(file, submissionData);
             
-            // ✅ Mostra successo
-            showSuccessMessage(submissionData.fileName, submissionData.submissionId);
-            
-            // ✅ Reset form
-            form.reset();
-            resetForm();
-
         } catch (error) {
-            console.error('=== PROCESS ERROR ===:', error);
+            console.error('Error:', error);
             showMessage(`❌ Error: ${error.message}`, 'error');
-        } finally {
             setLoading(false);
         }
     });
 });
 
-// ✅ INVIA EMAIL DI NOTIFICA AD ALBIM
-async function sendNotificationToAlbim(data) {
-    try {
-        const templateParams = {
-            user_name: data.name,
-            user_email: data.email,
-            submission_id: data.submissionId,
-            clip_type: getClipTypeLabel(data.clipType),
-            description: data.description,
-            file_name: data.fileName,
-            file_size: data.fileSize,
-            bug_details: data.bugSpecific,
-            upload_time: data.uploadTime
-        };
-
-        console.log('Sending email to Albim with params:', templateParams);
-
-        const response = await emailjs.send(
-            'service_8je7eis', // Sostituisci con il tuo Service ID reale
-            'albim_notification', // Template name
-            templateParams
-        );
-
-        console.log('Email to Albim sent successfully:', response);
-        return true;
-
-    } catch (error) {
-        console.error('Error sending email to Albim:', error);
-        throw new Error('Failed to send notification email: ' + error.text);
-    }
-}
-
-// ✅ INVIA EMAIL DI ISTRUZIONI ALL'UTENTE
-async function sendInstructionsToUser(data) {
-    try {
-        const templateParams = {
-            user_name: data.name,
-            submission_id: data.submissionId,
-            file_name: data.fileName,
-            file_size: data.fileSize,
-            upload_time: data.uploadTime
-        };
-
-        console.log('Sending instructions to user with params:', templateParams);
-
-        const response = await emailjs.send(
-            'service_gmail', // Sostituisci con il tuo Service ID reale
-            'user_instructions', // Template name
-            templateParams
-        );
-
-        console.log('Instructions email sent successfully:', response);
-        return true;
-
-    } catch (error) {
-        console.error('Error sending instructions email:', error);
-        // Non blocchiamo il processo se questa email fallisce
-        return false;
-    }
-}
-
-// ✅ FUNZIONE PER LABEL CLIP TYPE
-function getClipTypeLabel(clipType) {
-    const labels = {
-        funny: '😂 Funny Moment',
-        epic: '🔥 Epic Play',
-        bug: '🐛 Game Bug', 
-        fail: '💥 Funny Fail',
-        other: '📁 Other'
+// ✅ REDIRECT A MEGA PER UPLOAD
+function redirectToMegaUpload(file, submissionData) {
+    // Crea un nome file unico per Mega
+    const uniqueFileName = `${submissionData.submissionId}_${file.name}`;
+    
+    // Prepara i dati per Mega
+    const megaData = {
+        fileName: uniqueFileName,
+        fileSize: file.size,
+        submissionId: submissionData.submissionId,
+        userName: submissionData.name
     };
-    return labels[clipType] || clipType;
+    
+    // Salva i dati per dopo l'upload
+    localStorage.setItem('megaUploadData', JSON.stringify(megaData));
+    localStorage.setItem('submissionData', JSON.stringify(submissionData));
+    
+    // Mostra istruzioni per l'upload
+    showMegaInstructions(file.name, submissionData.submissionId, file.size);
+    
+    setLoading(false);
 }
 
-// ✅ INVIA EMAIL DI ISTRUZIONI ALL'UTENTE
-async function sendInstructionsToUser(data) {
-    try {
-        const templateParams = {
-            to_email: data.email,
-            to_name: data.name,
-            submission_id: data.submissionId,
-            file_name: data.fileName,
-            file_size: data.fileSize,
-            upload_time: data.uploadTime,
-            user_name: data.name
-        };
+// ✅ MOSTRA ISTRUZIONI MEGA
+function showMegaInstructions(fileName, submissionId, fileSize) {
+    const displaySize = formatFileSize(fileSize);
+    
+    const html = `
+        <div style="text-align: center;">
+            <h3 style="color: #155724; margin-bottom: 15px;">📤 Upload to MEGA</h3>
+            
+            <div style="background: #e3f2fd; padding: 20px; border-radius: 8px; margin: 15px 0; text-align: left;">
+                <strong>🚀 Ready to upload directly to MEGA!</strong><br><br>
+                
+                <div style="background: white; padding: 15px; border-radius: 6px; margin: 10px 0;">
+                    <strong>📋 File Details:</strong><br>
+                    <strong>File:</strong> ${fileName}<br>
+                    <strong>Size:</strong> ${displaySize}<br>
+                    <strong>Submission ID:</strong> ${submissionId}
+                </div>
+                
+                <div style="margin: 15px 0;">
+                    <strong>📝 Instructions:</strong>
+                    <ol style="text-align: left; margin: 10px 0; padding-left: 20px;">
+                        <li>Click the "Open MEGA" button below</li>
+                        <li>Upload your file to MEGA</li>
+                        <li>Get the shareable download link</li>
+                        <li>Return here and submit the link</li>
+                    </ol>
+                </div>
+            </div>
 
-        const response = await emailjs.send(
-            'default_service', // Service ID
-            'template_user_instructions', // Template ID - dovrai creare questo template
-            templateParams
-        );
+            <div style="display: flex; gap: 10px; justify-content: center; margin: 20px 0;">
+                <button onclick="openMegaWebsite()" style="background: #d32f2f; color: white; border: none; padding: 15px 30px; border-radius: 8px; cursor: pointer; font-weight: bold;">
+                    🌐 OPEN MEGA
+                </button>
+                <button onclick="cancelUpload()" style="background: #6c757d; color: white; border: none; padding: 15px 20px; border-radius: 8px; cursor: pointer;">
+                    Cancel
+                </button>
+            </div>
+            
+            <div style="margin-top: 15px; font-size: 14px; color: #666;">
+                After uploading to MEGA, return here to submit your download link.
+            </div>
+        </div>
+    `;
+    
+    const messageDiv = document.getElementById('message');
+    messageDiv.innerHTML = html;
+    messageDiv.className = 'message success';
+    messageDiv.style.display = 'block';
+}
 
-        console.log('Instructions email sent successfully:', response);
-        return true;
+// ✅ APRI MEGA WEBSITE
+function openMegaWebsite() {
+    window.open('https://mega.nz', '_blank');
+    
+    // Mostra il form per inserire il link Mega
+    showLinkSubmissionForm();
+}
 
-    } catch (error) {
-        console.error('Error sending instructions email:', error);
-        // Non blocchiamo il processo se questa email fallisce
-        return false;
+// ✅ MOSTRA FORM PER INSERIRE LINK MEGA
+function showLinkSubmissionForm() {
+    const submissionData = JSON.parse(localStorage.getItem('submissionData') || '{}');
+    
+    const html = `
+        <div style="text-align: center;">
+            <h3 style="color: #155724; margin-bottom: 15px;">🔗 Submit MEGA Link</h3>
+            
+            <div style="background: #fff3cd; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: left;">
+                <strong>📤 Upload completed?</strong><br>
+                Paste your MEGA download link below:
+            </div>
+            
+            <div style="margin: 20px 0;">
+                <input type="url" id="megaLink" placeholder="https://mega.nz/file/..." 
+                       style="width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 6px; font-size: 16px;"
+                       required>
+            </div>
+            
+            <div style="display: flex; gap: 10px; justify-content: center;">
+                <button onclick="submitMegaLink()" style="background: #28a745; color: white; border: none; padding: 12px 25px; border-radius: 6px; cursor: pointer; font-weight: bold;">
+                    ✅ Submit Link
+                </button>
+                <button onclick="cancelUpload()" style="background: #6c757d; color: white; border: none; padding: 12px 20px; border-radius: 6px; cursor: pointer;">
+                    Cancel
+                </button>
+            </div>
+            
+            <div style="margin-top: 15px; font-size: 14px; color: #666;">
+                <strong>Submission ID:</strong> ${submissionData.submissionId}<br>
+                <strong>File:</strong> ${submissionData.fileName}
+            </div>
+        </div>
+    `;
+    
+    const messageDiv = document.getElementById('message');
+    messageDiv.innerHTML = html;
+    messageDiv.className = 'message success';
+    messageDiv.style.display = 'block';
+}
+
+// ✅ INVIA LINK MEGA AL SERVER
+async function submitMegaLink() {
+    const megaLink = document.getElementById('megaLink').value;
+    const submissionData = JSON.parse(localStorage.getItem('submissionData') || '{}');
+    
+    if (!megaLink) {
+        showMessage('Please enter your MEGA download link', 'error');
+        return;
     }
+    
+    if (!megaLink.includes('mega.nz')) {
+        showMessage('Please enter a valid MEGA link', 'error');
+        return;
+    }
+    
+    setLoading(true);
+    
+    try {
+        // Invia i dati al server (solo il link Mega)
+        const response = await fetch('/api/submit-link', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                ...submissionData,
+                megaLink: megaLink,
+                finalSubmission: true
+            })
+        });
+        
+        if (response.ok) {
+            showFinalSuccess(submissionData.fileName, submissionData.submissionId, megaLink);
+            localStorage.removeItem('submissionData');
+            localStorage.removeItem('megaUploadData');
+        } else {
+            throw new Error('Failed to submit link');
+        }
+        
+    } catch (error) {
+        showMessage(`❌ Error: ${error.message}`, 'error');
+    } finally {
+        setLoading(false);
+    }
+}
+
+// ✅ SUCCESSO FINALE
+function showFinalSuccess(fileName, submissionId, megaLink) {
+    const html = `
+        <div style="text-align: center;">
+            <h3 style="color: #155724; margin-bottom: 15px;">🎬 Submission Complete!</h3>
+            
+            <div style="background: #d4edda; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: left;">
+                <strong>✅ Successfully submitted to MEGA!</strong><br>
+                <strong>File:</strong> ${fileName}<br>
+                <strong>Submission ID:</strong> ${submissionId}<br>
+                <strong>MEGA Link:</strong> Received and stored
+            </div>
+
+            <a href="${megaLink}" target="_blank" 
+               style="background: #d32f2f; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; margin: 10px 0;">
+               🔗 Open MEGA Link
+            </a>
+            
+            <div style="margin-top: 15px; font-size: 14px; color: #666;">
+                Thank you for your submission! Your clip will be reviewed soon.
+            </div>
+        </div>
+    `;
+    
+    const messageDiv = document.getElementById('message');
+    messageDiv.innerHTML = html;
+    messageDiv.className = 'message success';
+    messageDiv.style.display = 'block';
+    
+    // Reset form
+    document.getElementById('uploadForm').reset();
+    resetForm();
+}
+
+// ✅ CANCELLA UPLOAD
+function cancelUpload() {
+    localStorage.removeItem('submissionData');
+    localStorage.removeItem('megaUploadData');
+    const messageDiv = document.getElementById('message');
+    messageDiv.style.display = 'none';
+}
+
+// ✅ SALVA DATI LOCALMENTE (opzionale)
+function saveSubmissionLocally(data) {
+    const submissions = JSON.parse(localStorage.getItem('clipSubmissions') || '[]');
+    submissions.push(data);
+    localStorage.setItem('clipSubmissions', JSON.stringify(submissions));
 }
 
 // ✅ FUNZIONE FORMATTA DIMENSIONE FILE
@@ -340,7 +441,7 @@ function handleFileSelection() {
         uploadZone.style.display = 'none';
         nextBtn.disabled = false;
         
-        showMessage(`File selected: ${file.name} (${displaySize}) - Ready for submission`, 'success');
+        showMessage(`File selected: ${file.name} (${displaySize}) - Ready for MEGA upload`, 'success');
     }
 }
 
@@ -379,11 +480,11 @@ function setLoading(loading) {
     
     if (loading) {
         submitBtn.disabled = true;
-        btnText.textContent = 'Sending...';
+        btnText.textContent = 'Processing...';
         btnSpinner.style.display = 'block';
     } else {
         submitBtn.disabled = false;
-        btnText.textContent = '🎬 Submit Clip';
+        btnText.textContent = '🎬 Upload to MEGA';
         btnSpinner.style.display = 'none';
     }
 }
@@ -397,45 +498,6 @@ function showMessage(text, type) {
     setTimeout(() => {
         messageDiv.style.display = 'none';
     }, 5000);
-}
-
-// ✅ FUNZIONE SUCCESSO
-function showSuccessMessage(fileName, submissionId) {
-    const fileInput = document.getElementById('clipFile');
-    const file = fileInput.files[0];
-    const displaySize = file ? formatFileSize(file.size) : '0 MB';
-    
-    const html = `
-        <div style="text-align: center;">
-            <h3 style="color: #155724; margin-bottom: 15px;">✅ Submission Received!</h3>
-            
-            <div style="background: #d4edda; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: left;">
-                <strong>📧 Check Your Email!</strong><br>
-                We've sent you detailed instructions to upload your clip to MEGA.<br>
-                <strong>File:</strong> ${fileName} (${displaySize})<br>
-                <strong>Submission ID:</strong> ${submissionId}
-            </div>
-
-            <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: left;">
-                <strong>📤 Next Steps:</strong>
-                <ol style="text-align: left; margin: 10px 0;">
-                    <li><strong>Check your email</strong> for MEGA upload instructions</li>
-                    <li><strong>Upload your file</strong> to MEGA following the steps</li>
-                    <li><strong>Reply to the email</strong> with your MEGA download link</li>
-                    <li><strong>We'll review</strong> your clip for potential feature</li>
-                </ol>
-            </div>
-            
-            <div style="margin-top: 15px; font-size: 14px; color: #666;">
-                Thank you for your submission! Follow the email instructions to complete the upload.
-            </div>
-        </div>
-    `;
-    
-    const messageDiv = document.getElementById('message');
-    messageDiv.innerHTML = html;
-    messageDiv.className = 'message success';
-    messageDiv.style.display = 'block';
 }
 
 function resetForm() {
@@ -457,9 +519,4 @@ function resetForm() {
     
     // Hide bug specific
     document.getElementById('bugSpecificGroup').style.display = 'none';
-}
-
-// Funzioni modal
-function closeSuccessModal() {
-    document.getElementById('successModal').style.display = 'none';
 }
