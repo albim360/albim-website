@@ -116,7 +116,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Submit form
+    // Submit form - CORRETTO
     form.addEventListener('submit', async function(e) {
         e.preventDefault();
         
@@ -174,10 +174,12 @@ document.addEventListener('DOMContentLoaded', function() {
             const result = await response.json();
             console.log('Success:', result);
 
-           if (result.success) {
-    showMegaSuccessMessage(file.name, result.submissionId);
-    form.reset();
-    resetForm(); else {
+            // ✅ CORREZIONE: Sistemata la sintassi qui
+            if (result.success) {
+                showMegaSuccessMessage(file.name, result.submissionId);
+                form.reset();
+                resetForm();
+            } else {
                 throw new Error(result.error || 'Upload failed');
             }
         } catch (error) {
@@ -297,13 +299,17 @@ function showMessage(text, type) {
     }, 5000);
 }
 
-// ✅ NUOVA FUNZIONE PER SUCCESSO MEGA
+// ✅ FUNZIONE PER SUCCESSO MEGA
 function showMegaSuccessMessage(fileName, submissionId) {
     const fileInput = document.getElementById('clipFile');
     const file = fileInput.files[0];
-    const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
-    const fileSizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
-    const displaySize = file.size > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
+    let displaySize = '0 MB';
+    
+    if (file) {
+        const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+        const fileSizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
+        displaySize = file.size > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
+    }
     
     const html = `
         <div style="text-align: center;">
