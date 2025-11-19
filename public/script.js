@@ -116,59 +116,113 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // ✅ SUBMIT FORM - SOLO SALVATAGGIO DATI E REDIRECT A MEGA
-    form.addEventListener('submit', async function(e) {
-        e.preventDefault();
+// ✅ SUBMIT FORM - INVIO AL BACKEND PER UPLOAD AUTOMATICO
+form.addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    console.log('=== AUTOMATIC MEGA UPLOAD STARTED ===');
+    
+    if (!validateStep2()) {
+        return;
+    }
+
+    const agreeRights = document.getElementById('agreeRights');
+    if (!agreeRights.checked) {
+        showMessage('You must agree to the rights agreement', 'error');
+        return;
+    }
+
+    const fileInput = document.getElementById('clipFile');
+    const file = fileInput.files[0];
+    if (!file) {
+        showMessage('Please select a clip file', 'error');
+        return;
+    }
+
+    setLoading(true);
+
+    try {
+        console.log('Getting reCAPTCHA token...');
+        const token = await grecaptcha.execute('6LcolggsAAAAAIXx3zwptDhS2ArV8v29-Uc2x_Td', {action: 'submit'});
         
-        console.log('=== MEGA UPLOAD PREPARATION ===');
+        console.log('Creating FormData with file...');
+        const formData = new FormData();
+        formData.append('name', document.getElementById('name').value);
+        formData.append('email', document.getElementById('email').value);
+        formData.append('clipType', document.getElementById('clipType').value);
+        formData.append('bugSpecific', document.getElementById('bugSpecific').value);
+        formData.append('description', document.getElementById('description').value);
+        formData.append('recaptchaToken', token);
+        formData.append('clipFile', file); // IL FILE REALE
+
+        console.log('Sending to backend for automatic MEGA upload...');
+        const response = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData
+        });
+
+        console.log('Response status:', response.status);
         
-        if (!validateStep2()) {
-            return;
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Server error: ${response.status} - ${errorText}`);
         }
 
-        const agreeRights = document.getElementById('agreeRights');
-        if (!agreeRights.checked) {
-            showMessage('You must agree to the rights agreement', 'error');
-            return;
+        const result = await response.json();
+        console.log('✅ Automatic upload successful:', result);
+
+        if (result.success) {
+            showAutoUploadSuccess(file.name, result.submissionId, result.downloadUrl);
+            form.reset();
+            resetForm();
+        } else {
+            throw new Error(result.error || 'Upload failed');
         }
+    } catch (error) {
+        console.error('Error:', error);
+        showMessage(`❌ Error: ${error.message}`, 'error');
+    } finally {
+        setLoading(false);
+    }
+});
 
-        const fileInput = document.getElementById('clipFile');
-        const file = fileInput.files[0];
-        if (!file) {
-            showMessage('Please select a clip file', 'error');
-            return;
-        }
-
-        setLoading(true);
-
-        try {
-            // ✅ Prepara i dati della submission
-            const submissionData = {
-                name: document.getElementById('name').value,
-                email: document.getElementById('email').value,
-                clipType: document.getElementById('clipType').value,
-                bugSpecific: document.getElementById('bugSpecific').value || 'N/A',
-                description: document.getElementById('description').value,
-                fileName: file.name,
-                fileSize: formatFileSize(file.size),
-                submissionId: 'sub_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
-                timestamp: new Date().toLocaleString('it-IT')
-            };
-
-            console.log('Submission data prepared:', submissionData);
-
-            // ✅ Salva i dati localmente (opzionale)
-            saveSubmissionLocally(submissionData);
+// ✅ FUNZIONE SUCCESSO UPLOAD AUTOMATICO
+function showAutoUploadSuccess(fileName, submissionId, downloadUrl) {
+    const html = `
+        <div style="text-align: center;">
+            <h3 style="color: #155724; margin-bottom: 15px;">🎬 Automatic Upload Successful!</h3>
             
-            // ✅ Redirect a MEGA per l'upload
-            redirectToMegaUpload(file, submissionData);
+            <div style="background: #d4edda; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: left;">
+                <strong>✅ File automatically uploaded to YOUR MEGA!</strong><br>
+                The clip has been automatically saved in your "Albim-YT" folder.<br>
+                <strong>File:</strong> ${fileName}<br>
+                <strong>Submission ID:</strong> ${submissionId}
+            </div>
+
+            <div style="background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 15px 0; text-align: left;">
+                <strong>📧 Notification Sent</strong><br>
+                You have been notified via email with the download link.
+            </div>
+
+            ${downloadUrl ? `
+            <a href="${downloadUrl}" target="_blank" 
+               style="background: #d32f2f; color: white; padding: 15px 30px; border-radius: 8px; 
+                      text-decoration: none; font-weight: bold; display: inline-block; margin: 10px 0;">
+               📥 DOWNLOAD FROM YOUR MEGA
+            </a>
+            ` : ''}
             
-        } catch (error) {
-            console.error('Error:', error);
-            showMessage(`❌ Error: ${error.message}`, 'error');
-            setLoading(false);
-        }
-    });
+            <div style="margin-top: 15px; font-size: 14px; color: #666;">
+                The file is now safely stored in your MEGA account. Thank you for the submission!
+            </div>
+        </div>
+    `;
+    
+    const messageDiv = document.getElementById('message');
+    messageDiv.innerHTML = html;
+    messageDiv.className = 'message success';
+    messageDiv.style.display = 'block';
+}
 });
 
 // ✅ REDIRECT A MEGA PER UPLOAD

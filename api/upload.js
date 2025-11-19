@@ -1,6 +1,9 @@
 const nodemailer = require('nodemailer');
 const fetch = require('node-fetch');
 const formidable = require('formidable');
+const mega = require('mega');
+const fs = require('fs');
+const path = require('path');
 
 module.exports = async (req, res) => {
   // Enable CORS
@@ -18,10 +21,11 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // Parse form data (SOLO per ottenere i metadati del file)
+    // Parse form data CON il file
     const form = formidable({
       maxFileSize: 2 * 1024 * 1024 * 1024, // 2GB
-      multiples: false
+      multiples: false,
+      keepExtensions: true
     });
 
     const { fields, files } = await new Promise((resolve, reject) => {
@@ -39,11 +43,7 @@ module.exports = async (req, res) => {
     });
 
     console.log('Fields received:', Object.keys(fields));
-    console.log('File info received:', files.clipFile ? {
-      originalFilename: files.clipFile.originalFilename,
-      size: files.clipFile.size,
-      mimetype: files.clipFile.mimetype
-    } : 'No file');
+    console.log('Files received:', files);
 
     // Verify reCAPTCHA
     const recaptchaToken = Array.isArray(fields.recaptchaToken) ? fields.recaptchaToken[0] : fields.recaptchaToken;
@@ -88,13 +88,19 @@ module.exports = async (req, res) => {
 
     const submissionId = 'sub_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
-    // ✅ SOLUZIONE SEMPLICE: Invia solo le informazioni via email
-    await sendEmailNotification(name, email, clipType, bugSpecific, description, clipFile, submissionId);
+    // ✅ UPLOAD AUTOMATICO SUL TUO MEGA
+    console.log('Starting automatic upload to YOUR MEGA account...');
+    const megaResult = await uploadToYourMega(clipFile, name, email, description, submissionId);
+
+    // ✅ INVIA EMAIL DI NOTIFICA
+    await sendSuccessNotification(name, email, clipType, description, clipFile, submissionId, megaResult);
 
     res.status(200).json({ 
       success: true, 
-      message: 'Submission received! Check your email for Mega upload instructions.',
-      submissionId: submissionId
+      message: 'Clip automatically uploaded to your MEGA account!',
+      submissionId: submissionId,
+      downloadUrl: megaResult.downloadUrl,
+      fileName: megaResult.fileName
     });
 
   } catch (error) {
@@ -112,8 +118,97 @@ module.exports = async (req, res) => {
   }
 };
 
-// ✅ Email con istruzioni dettagliate per Mega
-async function sendEmailNotification(name, userEmail, clipType, bugSpecific, description, file, submissionId) {
+// ✅ FUNZIONE UPLOAD AUTOMATICO SUL TUO MEGA
+async function uploadToYourMega(file, name, email, description, submissionId) {
+  try {
+    console.log('Connecting to YOUR MEGA account...');
+    
+    // Configura con le TUE credenziali Mega
+    const storage = mega({
+      email: process.env.MEGA_EMAIL, // Il TUO email Mega
+      password: process.env.MEGA_PASSWORD // La TUA password Mega
+    });
+
+    // Attendiamo il login
+    await storage.ready;
+    console.log('✅ Successfully logged into YOUR MEGA account');
+
+    // Crea nome file unico
+    const uniqueFileName = `${submissionId}_${file.originalFilename}`;
+    
+    // ✅ CERCA O CREA LA CARTELLA "Albim-YT"
+    let albimFolder;
+    try {
+      // Prova a trovare la cartella esistente
+      const root = storage.root;
+      const folders = await root.children;
+      
+      albimFolder = folders.find(folder => 
+        folder.name === 'Albim-YT' || 
+        folder.name === 'albim-yt' ||
+        folder.name === 'Albim-YouTube'
+      );
+      
+      if (!albimFolder) {
+        // Se non esiste, creala
+        console.log('Creating "Albim-YT" folder...');
+        albimFolder = await storage.mkdir('Albim-YT');
+        console.log('✅ Created "Albim-YT" folder');
+      } else {
+        console.log('✅ Found existing "Albim-YT" folder');
+      }
+    } catch (folderError) {
+      console.log('Creating "Albim-YT" folder...');
+      albimFolder = await storage.mkdir('Albim-YT');
+      console.log('✅ Created "Albim-YT" folder');
+    }
+
+    // ✅ UPLOAD DEL FILE NELLA CARTELLA "Albim-YT"
+    console.log(`Uploading file to Albim-YT folder: ${uniqueFileName}`);
+    const uploadedFile = await storage.upload(uniqueFileName, file.filepath, albimFolder);
+    console.log('✅ File uploaded successfully to Albim-YT');
+
+    // ✅ CREA LINK DI DOWNLOAD PUBBLICO
+    const downloadUrl = await storage.link(uploadedFile);
+    console.log('✅ Public download link created:', downloadUrl);
+
+    // Pulisci il file temporaneo
+    fs.unlinkSync(file.filepath);
+
+    return {
+      fileName: uniqueFileName,
+      downloadUrl: downloadUrl,
+      folder: 'Albim-YT',
+      submissionId: submissionId
+    };
+
+  } catch (error) {
+    console.error('❌ MEGA upload error:', error);
+    
+    // Pulisci file temporaneo in caso di errore
+    try {
+      if (file && file.filepath) {
+        fs.unlinkSync(file.filepath);
+      }
+    } catch (cleanupError) {
+      console.error('Error cleaning up temp file:', cleanupError);
+    }
+    
+    // Errori specifici di Mega
+    if (error.message.includes('Invalid email')) {
+      throw new Error('Invalid MEGA account credentials');
+    } else if (error.message.includes('Invalid password')) {
+      throw new Error('Invalid MEGA password');
+    } else if (error.message.includes('ENOTFOUND')) {
+      throw new Error('Cannot connect to MEGA servers');
+    }
+    
+    throw new Error('Failed to upload to MEGA: ' + error.message);
+  }
+}
+
+// ✅ INVIA EMAIL DI SUCCESSO
+async function sendSuccessNotification(name, userEmail, clipType, description, file, submissionId, megaResult) {
   try {
     const transporter = nodemailer.createTransport({
       service: 'gmail',
@@ -123,7 +218,10 @@ async function sendEmailNotification(name, userEmail, clipType, bugSpecific, des
       }
     });
 
-    // Format clip type for display
+    const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+    const fileSizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
+    const displaySize = file.size > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
+
     const clipTypeLabels = {
       funny: '😂 Funny Moment',
       epic: '🔥 Epic Play', 
@@ -132,16 +230,10 @@ async function sendEmailNotification(name, userEmail, clipType, bugSpecific, des
       other: '📁 Other'
     };
 
-    // Calculate file size for display
-    const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
-    const fileSizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
-    const displaySize = file.size > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
-
-    // Email per ALBIM (notifica)
-    const albimMailOptions = {
+    const mailOptions = {
       from: process.env.EMAIL_USER,
-      to: 'alberto.zappala360@gmail.com',
-      subject: `🎬 NEW CLIP SUBMISSION: ${clipTypeLabels[clipType] || clipType} - ${submissionId}`,
+      to: 'alberto.zappala360@gmail.com', // Il TUO email
+      subject: `🎬 NEW CLIP IN ALBIM-YT: ${submissionId}`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -151,74 +243,40 @@ async function sendEmailNotification(name, userEmail, clipType, bugSpecific, des
                 .container { max-width: 600px; margin: 0 auto; padding: 20px; }
                 .header { background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
                 .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
-                .field { margin-bottom: 15px; }
-                .label { font-weight: bold; color: #2d3436; }
-                .value { color: #636e72; }
-                .action-box { background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; }
-                .instruction-box { background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 20px 0; }
-                .btn { background: #28a745; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; margin: 10px 5px; }
+                .success-box { background: #d4edda; padding: 15px; border-radius: 8px; margin: 15px 0; }
+                .mega-box { background: #e3f2fd; padding: 15px; border-radius: 8px; margin: 15px 0; }
+                .download-btn { background: #d32f2f; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; }
             </style>
         </head>
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>🎬 New Clip Submission!</h1>
-                    <p>Ready for Mega upload</p>
+                    <h1>🎬 Clip Auto-Uploaded to Albim-YT!</h1>
+                    <p>File automatically saved in your MEGA folder</p>
                 </div>
                 <div class="content">
-                    <div class="field">
-                        <span class="label">👤 Submitted by:</span>
-                        <span class="value">${name} (${userEmail})</span>
+                    <div class="success-box">
+                        <strong>✅ AUTOMATIC UPLOAD SUCCESSFUL</strong><br>
+                        File automatically uploaded to your "Albim-YT" MEGA folder.
                     </div>
                     
-                    <div class="field">
-                        <span class="label">🎮 Clip Type:</span>
-                        <span class="value">${clipTypeLabels[clipType] || clipType}</span>
+                    <div><strong>👤 From:</strong> ${name} (${userEmail})</div>
+                    <div><strong>🎮 Type:</strong> ${clipTypeLabels[clipType] || clipType}</div>
+                    <div><strong>📝 Description:</strong> ${description}</div>
+                    <div><strong>📁 File:</strong> ${file.originalFilename} (${displaySize})</div>
+                    
+                    <div class="mega-box">
+                        <strong>☁️ MEGA Details:</strong><br>
+                        <strong>Folder:</strong> Albim-YT<br>
+                        <strong>Saved as:</strong> ${megaResult.fileName}<br>
+                        <strong>Submission ID:</strong> ${submissionId}
                     </div>
                     
-                    <div class="field">
-                        <span class="label">📝 Description:</span>
-                        <span class="value">${description}</span>
-                    </div>
-                    
-                    ${bugSpecific ? `
-                    <div class="field">
-                        <span class="label">🐛 Bug Details:</span>
-                        <span class="value">${bugSpecific}</span>
-                    </div>
-                    ` : ''}
-                    
-                    <div class="field">
-                        <span class="label">📁 File Info:</span>
-                        <span class="value">${file.originalFilename} (${displaySize})</span>
-                    </div>
-                    
-                    <div class="action-box">
-                        <strong>📤 USER WILL UPLOAD TO MEGA</strong><br>
-                        The user has been instructed to upload the file to Mega and share the link.<br>
-                        <strong>Submission ID:</strong> ${submissionId}<br>
-                        <strong>Expected File:</strong> ${file.originalFilename}<br>
-                        <strong>File Size:</strong> ${displaySize}
-                    </div>
-                    
-                    <div class="instruction-box">
-                        <strong>📧 Contact the user:</strong><br>
-                        Email: <strong>${userEmail}</strong><br>
-                        Name: <strong>${name}</strong><br>
-                        Ask them to share the Mega download link.
-                    </div>
-                    
-                    <div style="text-align: center; margin: 25px 0;">
-                        <a href="mailto:${userEmail}?subject=MEGA Upload Confirmation - ${submissionId}&body=Hi ${name},%0D%0A%0D%0AThank you for your clip submission!%0D%0A%0D%0APlease upload '${file.originalFilename}' to MEGA and reply to this email with the download link.%0D%0A%0D%0ASubmission ID: ${submissionId}%0D%0A%0D%0ABest regards,%0D%0AAlbim" class="btn">
-                           📧 Send Upload Reminder
+                    <div style="text-align: center; margin: 20px 0;">
+                        <a href="${megaResult.downloadUrl}" class="download-btn" target="_blank">
+                           📥 DOWNLOAD FROM MEGA
                         </a>
                     </div>
-                    
-                    <div style="text-align: center; margin-top: 25px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
-                        <strong>Submission Time:</strong> ${new Date().toLocaleString('it-IT')}<br>
-                        <strong>Submission ID:</strong> ${submissionId}<br>
-                        <strong>File Size:</strong> ${displaySize}
-                    </div>
                 </div>
             </div>
         </body>
@@ -226,96 +284,11 @@ async function sendEmailNotification(name, userEmail, clipType, bugSpecific, des
       `
     };
 
-    // Email per l'UTENTE (istruzioni)
-    const userMailOptions = {
-      from: process.env.EMAIL_USER,
-      to: userEmail,
-      subject: `📤 MEGA Upload Instructions - ${submissionId}`,
-      html: `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <style>
-                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                .header { background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-                .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
-                .step { background: white; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #667eea; }
-                .mega-btn { background: #d32f2f; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; margin: 10px 5px; }
-                .info-box { background: #e8f5e8; padding: 15px; border-radius: 8px; margin: 15px 0; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>📤 Upload Your Clip to MEGA</h1>
-                    <p>Follow these simple steps</p>
-                </div>
-                <div class="content">
-                    <div class="info-box">
-                        <strong>📋 Submission Details:</strong><br>
-                        <strong>File:</strong> ${file.originalFilename}<br>
-                        <strong>Size:</strong> ${displaySize}<br>
-                        <strong>Submission ID:</strong> ${submissionId}<br>
-                        <strong>Submitted:</strong> ${new Date().toLocaleString('it-IT')}
-                    </div>
-                    
-                    <div class="step">
-                        <strong>1. 📁 Go to MEGA</strong><br>
-                        <a href="https://mega.nz" class="mega-btn" target="_blank">🌐 Open MEGA Website</a>
-                    </div>
-                    
-                    <div class="step">
-                        <strong>2. 🔐 Login to Your Account</strong><br>
-                        - If you don't have an account, create one (it's free)<br>
-                        - MEGA offers 20GB of free storage
-                    </div>
-                    
-                    <div class="step">
-                        <strong>3. ⬆️ Upload Your File</strong><br>
-                        - Click the "Upload" button<br>
-                        - Select your file: <strong>${file.originalFilename}</strong><br>
-                        - Wait for the upload to complete (may take time for large files)
-                    </div>
-                    
-                    <div class="step">
-                        <strong>4. 🔗 Get Shareable Link</strong><br>
-                        - Right-click on the uploaded file<br>
-                        - Select "Get link" or "Share"<br>
-                        - Make sure the link allows downloads<br>
-                        - Copy the full link
-                    </div>
-                    
-                    <div class="step">
-                        <strong>5. 📧 Send Us the Link</strong><br>
-                        <strong>Reply to this email</strong> with:<br>
-                        - Your MEGA download link<br>
-                        - Submission ID: <strong>${submissionId}</strong><br>
-                        - We'll confirm receipt within 24 hours
-                    </div>
-                    
-                    <div style="text-align: center; margin: 25px 0; padding: 20px; background: #fff3cd; border-radius: 8px;">
-                        <strong>💡 Tip:</strong> If the file is very large, you might want to use MEGA's desktop app for faster upload.
-                    </div>
-                    
-                    <p style="text-align: center; color: #666;">
-                        Need help? Reply to this email for assistance.
-                    </p>
-                </div>
-            </div>
-        </body>
-        </html>
-      `
-    };
-
-    // Invia entrambe le email
-    await transporter.sendMail(albimMailOptions);
-    await transporter.sendMail(userMailOptions);
-    
-    console.log('Notification emails sent successfully');
+    await transporter.sendMail(mailOptions);
+    console.log('✅ Success notification email sent');
     
   } catch (error) {
-    console.error('Error sending email notification:', error);
-    throw error;
+    console.error('Error sending email:', error);
+    // Non blocchiamo l'upload se l'email fallisce
   }
 }
