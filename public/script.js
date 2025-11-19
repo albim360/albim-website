@@ -189,23 +189,22 @@ document.addEventListener('DOMContentLoaded', function() {
 async function sendNotificationToAlbim(data) {
     try {
         const templateParams = {
-            to_email: 'alberto.zappala360@gmail.com',
-            from_name: data.name,
-            from_email: data.email,
+            user_name: data.name,
+            user_email: data.email,
             submission_id: data.submissionId,
-            clip_type: data.clipType,
+            clip_type: getClipTypeLabel(data.clipType),
             description: data.description,
             file_name: data.fileName,
             file_size: data.fileSize,
             bug_details: data.bugSpecific,
-            upload_time: data.uploadTime,
-            user_email: data.email,
-            user_name: data.name
+            upload_time: data.uploadTime
         };
 
+        console.log('Sending email to Albim with params:', templateParams);
+
         const response = await emailjs.send(
-            'default_service', // Service ID - usa 'default_service' o creane uno su EmailJS
-            'template_albim_notification', // Template ID - dovrai creare questo template
+            'service_8je7eis', // Sostituisci con il tuo Service ID reale
+            'albim_notification', // Template name
             templateParams
         );
 
@@ -214,8 +213,49 @@ async function sendNotificationToAlbim(data) {
 
     } catch (error) {
         console.error('Error sending email to Albim:', error);
-        throw new Error('Failed to send notification email');
+        throw new Error('Failed to send notification email: ' + error.text);
     }
+}
+
+// ✅ INVIA EMAIL DI ISTRUZIONI ALL'UTENTE
+async function sendInstructionsToUser(data) {
+    try {
+        const templateParams = {
+            user_name: data.name,
+            submission_id: data.submissionId,
+            file_name: data.fileName,
+            file_size: data.fileSize,
+            upload_time: data.uploadTime
+        };
+
+        console.log('Sending instructions to user with params:', templateParams);
+
+        const response = await emailjs.send(
+            'service_gmail', // Sostituisci con il tuo Service ID reale
+            'user_instructions', // Template name
+            templateParams
+        );
+
+        console.log('Instructions email sent successfully:', response);
+        return true;
+
+    } catch (error) {
+        console.error('Error sending instructions email:', error);
+        // Non blocchiamo il processo se questa email fallisce
+        return false;
+    }
+}
+
+// ✅ FUNZIONE PER LABEL CLIP TYPE
+function getClipTypeLabel(clipType) {
+    const labels = {
+        funny: '😂 Funny Moment',
+        epic: '🔥 Epic Play',
+        bug: '🐛 Game Bug', 
+        fail: '💥 Funny Fail',
+        other: '📁 Other'
+    };
+    return labels[clipType] || clipType;
 }
 
 // ✅ INVIA EMAIL DI ISTRUZIONI ALL'UTENTE
