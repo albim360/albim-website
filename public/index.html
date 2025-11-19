@@ -1,91 +1,204 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- Previeni interferenze estensioni -->
-<meta name="robots" content="noindex">
-<meta name="google" content="notranslate">
-<meta name="format-detection" content="telephone=no">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Clip Submission - albim.lol</title>
+    <title>Submit Your Clip - Albim</title>
+    <meta name="robots" content="noindex">
+    <meta name="google" content="notranslate">
+    <meta name="format-detection" content="telephone=no">
+    <meta name="autocomplete" content="off">
     <link rel="stylesheet" href="style.css">
-    <!-- reCAPTCHA v3 -->
-<!-- SOSTITUISCI -->
-<script src="https://www.google.com/recaptcha/api.js?render=6LcolggsAAAAAIXx3zwptDhS2ArV8v29-Uc2x_Td"></script>
+    <script src="https://www.google.com/recaptcha/api.js?render=6LcolggsAAAAAIXx3zwptDhS2ArV8v29-Uc2x_Td"></script>
 </head>
 <body>
     <div class="container">
         <header>
             <h1>🎬 Submit Your Clip</h1>
-            <p>Share your clips with us!</p>
+            <p>Share your best gaming moments with Albim!</p>
         </header>
 
+        <!-- Steps Indicator -->
+        <div class="upload-steps">
+            <div class="step active" id="step1">
+                <div class="step-number">1</div>
+                <div class="step-text">Upload Clip</div>
+            </div>
+            <div class="step" id="step2">
+                <div class="step-number">2</div>
+                <div class="step-text">Add Details</div>
+            </div>
+            <div class="step" id="step3">
+                <div class="step-number">3</div>
+                <div class="step-text">Complete</div>
+            </div>
+        </div>
+
         <form id="uploadForm" class="upload-form">
-            <!-- I tuoi campi del form -->
-            <div class="form-group">
-                <label for="name">Your Name/Nickname *</label>
-                <input type="text" id="name" name="name" required>
-            </div>
-
-            <div class="form-group">
-                <label for="email">Your Email *</label>
-                <input type="email" id="email" name="email" required>
-            </div>
-
-            <div class="form-group">
-                <label for="clipType">Clip Type *</label>
-                <select id="clipType" name="clipType" required>
-                    <option value="">Select type...</option>
-                    <option value="bug">Bug</option>
-                    <option value="funny">Funny Clip</option>
-                    <option value="error">Error</option>
-                    <option value="fail">Fail</option>
-                    <option value="other">Other</option>
-                </select>
-            </div>
-
-            <div class="form-group" id="bugSpecificGroup" style="display: none;">
-                <label for="bugSpecific">If Bug, please specify which one</label>
-                <textarea id="bugSpecific" name="bugSpecific" placeholder="Describe the bug in detail..."></textarea>
-            </div>
-
-            <div class="form-group">
-                <label for="description">Clip Description *</label>
-                <textarea id="description" name="description" required placeholder="Describe what happens in your clip..."></textarea>
-            </div>
-
-            <div class="form-group">
-                <label for="clipFile">Upload Your Clip *</label>
-                <input type="file" id="clipFile" name="clipFile" accept="video/*" required>
-                <small style="display: block; margin-top: 5px; color: #666;">Max file size: 1GB. Supported formats: MP4, MOV, AVI, MKV, etc.</small>
-            </div>
-
-            <!-- Rights Agreement -->
-            <div class="rights-agreement">
-                <h3>📋 Rights & Permissions Agreement</h3>
-                <div class="agreement-content">
-                    <p><strong>By submitting your clip, you certify that:</strong></p>
-                    <ul>
-                        <li>✅ You are the sole owner of all rights to this clip</li>
-                        <li>✅ The clip is not protected by copyright or you have permission to use it</li>
-                        <li>✅ You grant Alberto Zappalà all rights to use this clip</li>
-                        <li>✅ The clip may be featured on YouTube channels</li>
-                        <li>✅ You waive any claims for compensation</li>
-                    </ul>
+            <!-- Step 1: File Upload -->
+            <div class="form-step active" id="step1-content">
+                <div class="form-group">
+                    <label class="upload-label">Upload Your Clip *</label>
+                    
+                    <div class="upload-zone" id="uploadZone">
+                        <div class="upload-placeholder">
+                            <div class="upload-icon">🎥</div>
+                            <h3>Drag & Drop your clip here</h3>
+                            <p>or click to browse files</p>
+                            <div class="upload-features">
+                                <span>✓ Max 2GB</span>
+                                <span>✓ MP4, MOV, AVI</span>
+                                <span>✓ Secure upload</span>
+                            </div>
+                        </div>
+                        <input type="file" id="clipFile" name="clipFile" accept="video/*" hidden>
+                    </div>
+                    
+                    <div class="file-preview" id="filePreview" style="display: none;">
+                        <div class="file-info">
+                            <div class="file-details">
+                                <span class="file-icon">📹</span>
+                                <div class="file-text">
+                                    <div class="file-name" id="fileName"></div>
+                                    <div class="file-size" id="fileSize"></div>
+                                </div>
+                            </div>
+                            <button type="button" class="remove-file" onclick="removeFile()">✕</button>
+                        </div>
+                        <div class="upload-progress">
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progressFill"></div>
+                            </div>
+                            <span class="progress-text" id="progressText">Ready to upload</span>
+                        </div>
+                    </div>
                 </div>
-                <label class="checkbox-label">
-                    <input type="checkbox" id="agreeRights" name="agreeRights" required>
-                    <span>I understand and agree to all terms above *</span>
-                </label>
+
+                <div class="step-actions">
+                    <button type="button" class="btn-next" onclick="nextStep()" disabled id="nextBtn">
+                        Continue to Details →
+                    </button>
+                </div>
             </div>
 
-            <button type="submit" id="submitBtn" class="submit-btn">
-                <span id="btnText">Submit Clip</span>
-                <div id="btnSpinner" class="spinner" style="display: none;"></div>
-            </button>
+            <!-- Step 2: Form Details -->
+            <div class="form-step" id="step2-content">
+                <div class="form-group">
+                    <label for="name">Your Name/Nickname *</label>
+                    <input type="text" id="name" name="name" required autocomplete="off" placeholder="Enter your name or gamertag">
+                </div>
+
+                <div class="form-group">
+                    <label for="email">Your Email *</label>
+                    <input type="email" id="email" name="email" required autocomplete="off" placeholder="your.email@example.com">
+                </div>
+
+                <div class="form-group">
+                    <label for="clipType">Clip Type *</label>
+                    <select id="clipType" name="clipType" required>
+                        <option value="">What type of clip is this?</option>
+                        <option value="funny">😂 Funny Moment</option>
+                        <option value="epic">🔥 Epic Play</option>
+                        <option value="bug">🐛 Game Bug</option>
+                        <option value="fail">💥 Funny Fail</option>
+                        <option value="other">📁 Other</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="bugSpecificGroup" style="display: none;">
+                    <label for="bugSpecific">Bug Details</label>
+                    <textarea id="bugSpecific" name="bugSpecific" placeholder="Please describe the bug in detail..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="description">Clip Description *</label>
+                    <textarea id="description" name="description" placeholder="Tell us about this clip... What makes it special?"></textarea>
+                </div>
+
+                <div class="step-actions">
+                    <button type="button" class="btn-back" onclick="prevStep()">
+                        ← Back to Upload
+                    </button>
+                    <button type="button" class="btn-next" onclick="nextStep()" id="step2NextBtn">
+                        Review & Submit →
+                    </button>
+                </div>
+            </div>
+
+            <!-- Step 3: Review & Submit -->
+            <div class="form-step" id="step3-content">
+                <div class="review-section">
+                    <h3>📋 Review Your Submission</h3>
+                    
+                    <div class="review-grid">
+                        <div class="review-item">
+                            <label>File:</label>
+                            <span id="reviewFileName">No file selected</span>
+                        </div>
+                        <div class="review-item">
+                            <label>Name:</label>
+                            <span id="reviewName">-</span>
+                        </div>
+                        <div class="review-item">
+                            <label>Email:</label>
+                            <span id="reviewEmail">-</span>
+                        </div>
+                        <div class="review-item">
+                            <label>Clip Type:</label>
+                            <span id="reviewClipType">-</span>
+                        </div>
+                        <div class="review-item full-width">
+                            <label>Description:</label>
+                            <span id="reviewDescription">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Rights Agreement -->
+                <div class="rights-agreement">
+                    <h3>📜 Rights Agreement</h3>
+                    <div class="agreement-content">
+                        <p><strong>By submitting your clip, you confirm:</strong></p>
+                        <ul>
+                            <li>✅ You own all rights to this content</li>
+                            <li>✅ No copyright restrictions apply</li>
+                            <li>✅ You grant Alberto Zappalà (@Albim360 on YouTube) full usage rights</li>
+                            <li>✅ Clip may be featured on YouTube/Twitch</li>
+                            <li>✅ You waive compensation claims</li>
+                        </ul>
+                    </div>
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="agreeRights" name="agreeRights" required>
+                        <span>I understand and agree to all terms above *</span>
+                    </label>
+                </div>
+
+                <div class="step-actions">
+                    <button type="button" class="btn-back" onclick="prevStep()">
+                        ← Back to Details
+                    </button>
+                    <button type="submit" id="submitBtn" class="submit-btn">
+                        <span id="btnText">🎬 Submit Clip</span>
+                        <div id="btnSpinner" class="spinner" style="display: none;"></div>
+                    </button>
+                </div>
+            </div>
 
             <div id="message" class="message"></div>
         </form>
+
+        <!-- Success Modal -->
+        <div class="success-modal" id="successModal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-icon">✅</div>
+                <h3>Submission Received!</h3>
+                <p>We've sent WeTransfer instructions to your email.</p>
+                <div class="modal-actions">
+                    <button class="modal-btn primary" onclick="closeSuccessModal()">Got It!</button>
+                    <button class="modal-btn secondary" onclick="openWeTransfer()">Open WeTransfer</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="script.js"></script>
