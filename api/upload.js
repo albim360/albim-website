@@ -1,8 +1,9 @@
 const nodemailer = require('nodemailer');
 const fetch = require('node-fetch');
 const formidable = require('formidable');
-const mega = require('megajs');
+const mega = require('mega');
 const fs = require('fs');
+const { Readable } = require('stream');
 
 module.exports = async (req, res) => {
   // Enable CORS
@@ -114,72 +115,61 @@ module.exports = async (req, res) => {
   }
 };
 
-// ✅ FUNZIONE UPLOAD SU MEGA REALE
+// ✅ FUNZIONE UPLOAD SU MEGA CORRETTA
 async function uploadToMega(file, name, email, description, submissionId) {
-  return new Promise(async (resolve, reject) => {
+  try {
+    console.log('Starting MEGA upload...');
+    
+    // Configura MEGA
+    const storage = mega({
+      email: process.env.MEGA_EMAIL,
+      password: process.env.MEGA_PASSWORD
+    });
+
+    // Attendiamo che sia pronto
+    await storage.ready;
+    console.log('Logged into MEGA successfully');
+
+    // Crea una cartella con nome unico
+    const folderName = `Clip_Submission_${submissionId}`;
+    const folder = await storage.mkdir(folderName);
+    console.log('Folder created:', folderName);
+
+    // Upload del file
+    console.log('Uploading file to MEGA...');
+    const uploadedFile = await storage.upload(file.originalFilename, file.filepath, folder);
+    console.log('File uploaded successfully:', uploadedFile.name);
+
+    // Ottieni il link di download
+    const downloadUrl = await storage.link(uploadedFile);
+    console.log('Download URL created:', downloadUrl);
+
+    // Pulisci il file temporaneo
+    fs.unlinkSync(file.filepath);
+
+    return {
+      fileName: file.originalFilename,
+      downloadUrl: downloadUrl,
+      folderName: folderName
+    };
+
+  } catch (error) {
+    console.error('MEGA upload error:', error);
+    
+    // Pulisci il file temporaneo anche in caso di errore
     try {
-      console.log('Starting MEGA upload...');
-      
-      // Crea una cartella con nome unico
-      const folderName = `Clip_${submissionId}_${Date.now()}`;
-      
-      // Upload su MEGA
-      const storage = await mega.storage({
-        email: process.env.MEGA_EMAIL,
-        password: process.env.MEGA_PASSWORD
-      });
-
-      console.log('Logged into MEGA successfully');
-
-      // Aspetta che lo storage sia pronto
-      await new Promise((resolve, reject) => {
-        storage.on('ready', resolve);
-        storage.on('error', reject);
-      });
-
-      // Crea cartella nella root
-      const folder = await storage.mkdir(folderName);
-      console.log('Folder created:', folderName);
-
-      // Leggi il file
-      const fileBuffer = fs.readFileSync(file.filepath);
-      
-      // Upload del file
-      console.log('Uploading file to MEGA...');
-      const uploadedFile = await folder.upload(file.originalFilename, fileBuffer);
-      console.log('File uploaded successfully');
-
-      // Crea link di download
-      const downloadUrl = await uploadedFile.link();
-      console.log('Download URL created:', downloadUrl);
-
-      // Pulisci il file temporaneo
-      fs.unlinkSync(file.filepath);
-
-      resolve({
-        fileName: file.originalFilename,
-        downloadUrl: downloadUrl,
-        folderName: folderName
-      });
-
-    } catch (error) {
-      console.error('MEGA upload error:', error);
-      
-      // Pulisci il file temporaneo anche in caso di errore
-      try {
-        if (file && file.filepath) {
-          fs.unlinkSync(file.filepath);
-        }
-      } catch (cleanupError) {
-        console.error('Error cleaning up temp file:', cleanupError);
+      if (file && file.filepath) {
+        fs.unlinkSync(file.filepath);
       }
-      
-      reject(new Error('Failed to upload to MEGA: ' + error.message));
+    } catch (cleanupError) {
+      console.error('Error cleaning up temp file:', cleanupError);
     }
-  });
+    
+    throw new Error('Failed to upload to MEGA: ' + error.message);
+  }
 }
 
-// Send email notification per MEGA
+// Send email notification
 async function sendEmailNotification(name, userEmail, clipType, bugSpecific, description, file, submissionId, megaResult) {
   try {
     const transporter = nodemailer.createTransport({
@@ -288,6 +278,5 @@ async function sendEmailNotification(name, userEmail, clipType, bugSpecific, des
     
   } catch (error) {
     console.error('Error sending email notification:', error);
-    // Non blocchiamo l'upload se l'email fallisce
   }
 }
