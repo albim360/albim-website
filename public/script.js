@@ -1,3 +1,6 @@
+// Inizializza EmailJS
+emailjs.init("AfY2qgV3ETueAukZ5");
+
 // Gestione Steps
 let currentStep = 1;
 
@@ -116,11 +119,11 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
-    // Submit form - CORRETTO
+    // ✅ SUBMIT FORM - SOLO EMAIL CON ISTRUZIONI MEGA
     form.addEventListener('submit', async function(e) {
         e.preventDefault();
         
-        console.log('Form submission started...');
+        console.log('=== MEGA UPLOAD PROCESS STARTED ===');
         
         if (!validateStep2()) {
             return;
@@ -132,64 +135,126 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        const fileInput = document.getElementById('clipFile');
+        const file = fileInput.files[0];
+        if (!file) {
+            showMessage('Please select a clip file', 'error');
+            return;
+        }
+
         setLoading(true);
 
         try {
-            // Validazione file
-            const fileInput = document.getElementById('clipFile');
-            const file = fileInput.files[0];
-            if (!file) {
-                showMessage('Please select a clip file', 'error');
-                setLoading(false);
-                return;
-            }
+            // ✅ Prepara i dati per l'email
+            const submissionData = {
+                name: document.getElementById('name').value,
+                email: document.getElementById('email').value,
+                clipType: document.getElementById('clipType').value,
+                bugSpecific: document.getElementById('bugSpecific').value || 'N/A',
+                description: document.getElementById('description').value,
+                fileName: file.name,
+                fileSize: formatFileSize(file.size),
+                fileSizeBytes: file.size,
+                submissionId: 'sub_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9),
+                uploadTime: new Date().toLocaleString('it-IT')
+            };
 
-            console.log('Getting reCAPTCHA token...');
-            const token = await grecaptcha.execute('6LcolggsAAAAAIXx3zwptDhS2ArV8v29-Uc2x_Td', {action: 'submit'});
+            console.log('Submission data:', submissionData);
+
+            // ✅ Invia email di notifica ad Albim
+            console.log('Sending notification to Albim...');
+            await sendNotificationToAlbim(submissionData);
             
-            console.log('Creating FormData...');
-            const formData = new FormData();
-            formData.append('name', document.getElementById('name').value);
-            formData.append('email', document.getElementById('email').value);
-            formData.append('clipType', document.getElementById('clipType').value);
-            formData.append('bugSpecific', document.getElementById('bugSpecific').value);
-            formData.append('description', document.getElementById('description').value);
-            formData.append('recaptchaToken', token);
-            formData.append('clipFile', file);
-
-            console.log('Sending to API...');
-            const response = await fetch('/api/upload', {
-                method: 'POST',
-                body: formData
-            });
-
-            console.log('Response status:', response.status);
+            // ✅ Invia email di istruzioni all'utente
+            console.log('Sending instructions to user...');
+            await sendInstructionsToUser(submissionData);
             
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('Server error:', errorText);
-                throw new Error(`Server error: ${response.status} - ${errorText}`);
-            }
+            // ✅ Mostra successo
+            showSuccessMessage(submissionData.fileName, submissionData.submissionId);
+            
+            // ✅ Reset form
+            form.reset();
+            resetForm();
 
-            const result = await response.json();
-            console.log('Success:', result);
-
-            // ✅ CORREZIONE: Sistemata la sintassi qui
-            if (result.success) {
-                showMegaSuccessMessage(file.name, result.submissionId);
-                form.reset();
-                resetForm();
-            } else {
-                throw new Error(result.error || 'Upload failed');
-            }
         } catch (error) {
-            console.error('Error:', error);
+            console.error('=== PROCESS ERROR ===:', error);
             showMessage(`❌ Error: ${error.message}`, 'error');
         } finally {
             setLoading(false);
         }
     });
 });
+
+// ✅ INVIA EMAIL DI NOTIFICA AD ALBIM
+async function sendNotificationToAlbim(data) {
+    try {
+        const templateParams = {
+            to_email: 'alberto.zappala360@gmail.com',
+            from_name: data.name,
+            from_email: data.email,
+            submission_id: data.submissionId,
+            clip_type: data.clipType,
+            description: data.description,
+            file_name: data.fileName,
+            file_size: data.fileSize,
+            bug_details: data.bugSpecific,
+            upload_time: data.uploadTime,
+            user_email: data.email,
+            user_name: data.name
+        };
+
+        const response = await emailjs.send(
+            'default_service', // Service ID - usa 'default_service' o creane uno su EmailJS
+            'template_albim_notification', // Template ID - dovrai creare questo template
+            templateParams
+        );
+
+        console.log('Email to Albim sent successfully:', response);
+        return true;
+
+    } catch (error) {
+        console.error('Error sending email to Albim:', error);
+        throw new Error('Failed to send notification email');
+    }
+}
+
+// ✅ INVIA EMAIL DI ISTRUZIONI ALL'UTENTE
+async function sendInstructionsToUser(data) {
+    try {
+        const templateParams = {
+            to_email: data.email,
+            to_name: data.name,
+            submission_id: data.submissionId,
+            file_name: data.fileName,
+            file_size: data.fileSize,
+            upload_time: data.uploadTime,
+            user_name: data.name
+        };
+
+        const response = await emailjs.send(
+            'default_service', // Service ID
+            'template_user_instructions', // Template ID - dovrai creare questo template
+            templateParams
+        );
+
+        console.log('Instructions email sent successfully:', response);
+        return true;
+
+    } catch (error) {
+        console.error('Error sending instructions email:', error);
+        // Non blocchiamo il processo se questa email fallisce
+        return false;
+    }
+}
+
+// ✅ FUNZIONE FORMATTA DIMENSIONE FILE
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
 
 function handleFileSelection() {
     const fileInput = document.getElementById('clipFile');
@@ -226,9 +291,7 @@ function handleFileSelection() {
         }
         
         // Mostra preview
-        const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
-        const sizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
-        const displaySize = file.size > 1024 * 1024 * 1024 ? `${sizeGB} GB` : `${sizeMB} MB`;
+        const displaySize = formatFileSize(file.size);
         
         fileName.textContent = file.name;
         fileSize.textContent = displaySize;
@@ -237,7 +300,7 @@ function handleFileSelection() {
         uploadZone.style.display = 'none';
         nextBtn.disabled = false;
         
-        showMessage(`File selected: ${file.name} (${displaySize}) - Ready for upload`, 'success');
+        showMessage(`File selected: ${file.name} (${displaySize}) - Ready for submission`, 'success');
     }
 }
 
@@ -259,10 +322,7 @@ function updateReview() {
     const file = fileInput.files[0];
     
     if (file) {
-        const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
-        const sizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
-        const displaySize = file.size > 1024 * 1024 * 1024 ? `${sizeGB} GB` : `${sizeMB} MB`;
-        
+        const displaySize = formatFileSize(file.size);
         document.getElementById('reviewFileName').textContent = `${file.name} (${displaySize})`;
     }
     
@@ -279,11 +339,11 @@ function setLoading(loading) {
     
     if (loading) {
         submitBtn.disabled = true;
-        btnText.textContent = 'Uploading to MEGA...';
+        btnText.textContent = 'Sending...';
         btnSpinner.style.display = 'block';
     } else {
         submitBtn.disabled = false;
-        btnText.textContent = '🎬 Submit Clip to MEGA';
+        btnText.textContent = '🎬 Submit Clip';
         btnSpinner.style.display = 'none';
     }
 }
@@ -299,14 +359,11 @@ function showMessage(text, type) {
     }, 5000);
 }
 
-// ✅ FUNZIONE PER SUCCESSO MEGA
-// ✅ Funzione di successo aggiornata
-function showMegaSuccessMessage(fileName, submissionId) {
+// ✅ FUNZIONE SUCCESSO
+function showSuccessMessage(fileName, submissionId) {
     const fileInput = document.getElementById('clipFile');
     const file = fileInput.files[0];
-    const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
-    const fileSizeGB = (file.size / (1024 * 1024 * 1024)).toFixed(2);
-    const displaySize = file.size > 1024 * 1024 * 1024 ? `${fileSizeGB} GB` : `${fileSizeMB} MB`;
+    const displaySize = file ? formatFileSize(file.size) : '0 MB';
     
     const html = `
         <div style="text-align: center;">
@@ -341,12 +398,6 @@ function showMegaSuccessMessage(fileName, submissionId) {
     messageDiv.style.display = 'block';
 }
 
-// E nel form submit, cambia questa parte:
-if (result.success) {
-    showMegaSuccessMessage(file.name, result.submissionId, result.downloadUrl);
-    form.reset();
-    resetForm();
-}
 function resetForm() {
     currentStep = 1;
     
@@ -368,11 +419,7 @@ function resetForm() {
     document.getElementById('bugSpecificGroup').style.display = 'none';
 }
 
-// Funzioni modal (se necessario)
+// Funzioni modal
 function closeSuccessModal() {
     document.getElementById('successModal').style.display = 'none';
-}
-
-function openWeTransfer() {
-    window.open('https://wetransfer.com', '_blank');
 }

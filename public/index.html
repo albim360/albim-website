@@ -10,6 +10,16 @@
     <meta name="autocomplete" content="off">
     <link rel="stylesheet" href="style.css">
     <script src="https://www.google.com/recaptcha/api.js?render=6LcolggsAAAAAIXx3zwptDhS2ArV8v29-Uc2x_Td"></script>
+    <!-- Mega SDK per upload diretto -->
+<script src="https://cdn.jsdelivr.net/npm/mega@1.0.4/dist/mega.min.js"></script>
+<!-- EmailJS SDK -->
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+<script>
+    // Inizializza EmailJS con le tue chiavi
+    (function() {
+        emailjs.init("AfY2qgV3ETueAukZ5"); // La tua public key
+    })();
+</script>
 </head>
 <body>
     <div class="container">
