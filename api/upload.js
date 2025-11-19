@@ -1,8 +1,6 @@
 const nodemailer = require('nodemailer');
 const fetch = require('node-fetch');
 const formidable = require('formidable');
-const fs = require('fs');
-const path = require('path');
 
 module.exports = async (req, res) => {
   // Enable CORS
@@ -20,11 +18,10 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // Parse form data
+    // Parse form data (SOLO per ottenere i metadati del file)
     const form = formidable({
       maxFileSize: 2 * 1024 * 1024 * 1024, // 2GB
-      multiples: false,
-      keepExtensions: true
+      multiples: false
     });
 
     const { fields, files } = await new Promise((resolve, reject) => {
@@ -42,7 +39,11 @@ module.exports = async (req, res) => {
     });
 
     console.log('Fields received:', Object.keys(fields));
-    console.log('Files received:', files);
+    console.log('File info received:', files.clipFile ? {
+      originalFilename: files.clipFile.originalFilename,
+      size: files.clipFile.size,
+      mimetype: files.clipFile.mimetype
+    } : 'No file');
 
     // Verify reCAPTCHA
     const recaptchaToken = Array.isArray(fields.recaptchaToken) ? fields.recaptchaToken[0] : fields.recaptchaToken;
@@ -87,11 +88,8 @@ module.exports = async (req, res) => {
 
     const submissionId = 'sub_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 
-    // ✅ SOLUZIONE SEMPLICE E AFFIDABILE: Salva i dettagli e invia email con istruzioni Mega
-    const fileInfo = await handleFileSubmission(clipFile, submissionId);
-    
-    // Invia email di notifica
-    await sendEmailNotification(name, email, clipType, bugSpecific, description, clipFile, submissionId, fileInfo);
+    // ✅ SOLUZIONE SEMPLICE: Invia solo le informazioni via email
+    await sendEmailNotification(name, email, clipType, bugSpecific, description, clipFile, submissionId);
 
     res.status(200).json({ 
       success: true, 
@@ -114,52 +112,8 @@ module.exports = async (req, res) => {
   }
 };
 
-// ✅ Gestione file semplice - Salva temporaneamente e fornisce istruzioni
-async function handleFileSubmission(file, submissionId) {
-  try {
-    // Crea cartella temporanea se non esiste
-    const tempDir = path.join(process.cwd(), 'temp_uploads');
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
-
-    // Nuovo nome file
-    const newFileName = `${submissionId}_${file.originalFilename}`;
-    const tempFilePath = path.join(tempDir, newFileName);
-
-    // Copia il file temporaneamente
-    fs.copyFileSync(file.filepath, tempFilePath);
-    
-    // Pulisci file temporaneo originale
-    fs.unlinkSync(file.filepath);
-
-    console.log('File saved temporarily:', tempFilePath);
-
-    return {
-      fileName: file.originalFilename,
-      tempPath: tempFilePath,
-      size: file.size,
-      submissionId: submissionId
-    };
-
-  } catch (error) {
-    console.error('Error handling file:', error);
-    
-    // Pulisci file temporaneo in caso di errore
-    try {
-      if (file && file.filepath) {
-        fs.unlinkSync(file.filepath);
-      }
-    } catch (cleanupError) {
-      console.error('Error cleaning up temp file:', cleanupError);
-    }
-    
-    throw error;
-  }
-}
-
 // ✅ Email con istruzioni dettagliate per Mega
-async function sendEmailNotification(name, userEmail, clipType, bugSpecific, description, file, submissionId, fileInfo) {
+async function sendEmailNotification(name, userEmail, clipType, bugSpecific, description, file, submissionId) {
   try {
     const transporter = nodemailer.createTransport({
       service: 'gmail',
@@ -240,21 +194,23 @@ async function sendEmailNotification(name, userEmail, clipType, bugSpecific, des
                     </div>
                     
                     <div class="action-box">
-                        <strong>📤 ACTION REQUIRED - MEGA UPLOAD</strong><br>
+                        <strong>📤 USER WILL UPLOAD TO MEGA</strong><br>
                         The user has been instructed to upload the file to Mega and share the link.<br>
                         <strong>Submission ID:</strong> ${submissionId}<br>
-                        <strong>Expected File:</strong> ${file.originalFilename}
+                        <strong>Expected File:</strong> ${file.originalFilename}<br>
+                        <strong>File Size:</strong> ${displaySize}
                     </div>
                     
                     <div class="instruction-box">
                         <strong>📧 Contact the user:</strong><br>
-                        Email: ${userEmail}<br>
-                        Ask them to share the Mega download link for: ${file.originalFilename}
+                        Email: <strong>${userEmail}</strong><br>
+                        Name: <strong>${name}</strong><br>
+                        Ask them to share the Mega download link.
                     </div>
                     
                     <div style="text-align: center; margin: 25px 0;">
-                        <a href="mailto:${userEmail}?subject=MEGA Upload Instructions - ${submissionId}&body=Hi ${name},%0D%0A%0D%0APlease upload your clip '${file.originalFilename}' to MEGA and reply to this email with the download link.%0D%0A%0D%0AThanks!" class="btn">
-                           📧 Send Upload Instructions
+                        <a href="mailto:${userEmail}?subject=MEGA Upload Confirmation - ${submissionId}&body=Hi ${name},%0D%0A%0D%0AThank you for your clip submission!%0D%0A%0D%0APlease upload '${file.originalFilename}' to MEGA and reply to this email with the download link.%0D%0A%0D%0ASubmission ID: ${submissionId}%0D%0A%0D%0ABest regards,%0D%0AAlbim" class="btn">
+                           📧 Send Upload Reminder
                         </a>
                     </div>
                     
@@ -286,6 +242,7 @@ async function sendEmailNotification(name, userEmail, clipType, bugSpecific, des
                 .content { background: #f8f9fa; padding: 30px; border-radius: 0 0 10px 10px; }
                 .step { background: white; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 4px solid #667eea; }
                 .mega-btn { background: #d32f2f; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; margin: 10px 5px; }
+                .info-box { background: #e8f5e8; padding: 15px; border-radius: 8px; margin: 15px 0; }
             </style>
         </head>
         <body>
@@ -295,38 +252,50 @@ async function sendEmailNotification(name, userEmail, clipType, bugSpecific, des
                     <p>Follow these simple steps</p>
                 </div>
                 <div class="content">
+                    <div class="info-box">
+                        <strong>📋 Submission Details:</strong><br>
+                        <strong>File:</strong> ${file.originalFilename}<br>
+                        <strong>Size:</strong> ${displaySize}<br>
+                        <strong>Submission ID:</strong> ${submissionId}<br>
+                        <strong>Submitted:</strong> ${new Date().toLocaleString('it-IT')}
+                    </div>
+                    
                     <div class="step">
                         <strong>1. 📁 Go to MEGA</strong><br>
                         <a href="https://mega.nz" class="mega-btn" target="_blank">🌐 Open MEGA Website</a>
                     </div>
                     
                     <div class="step">
-                        <strong>2. ⬆️ Upload Your File</strong><br>
-                        File: <strong>${file.originalFilename}</strong> (${displaySize})<br>
-                        - Login to your MEGA account<br>
-                        - Click "Upload" and select your file<br>
-                        - Wait for upload to complete
+                        <strong>2. 🔐 Login to Your Account</strong><br>
+                        - If you don't have an account, create one (it's free)<br>
+                        - MEGA offers 20GB of free storage
                     </div>
                     
                     <div class="step">
-                        <strong>3. 🔗 Get Shareable Link</strong><br>
+                        <strong>3. ⬆️ Upload Your File</strong><br>
+                        - Click the "Upload" button<br>
+                        - Select your file: <strong>${file.originalFilename}</strong><br>
+                        - Wait for the upload to complete (may take time for large files)
+                    </div>
+                    
+                    <div class="step">
+                        <strong>4. 🔗 Get Shareable Link</strong><br>
                         - Right-click on the uploaded file<br>
                         - Select "Get link" or "Share"<br>
-                        - Copy the download link
+                        - Make sure the link allows downloads<br>
+                        - Copy the full link
                     </div>
                     
                     <div class="step">
-                        <strong>4. 📧 Send Us the Link</strong><br>
-                        Reply to this email with:<br>
+                        <strong>5. 📧 Send Us the Link</strong><br>
+                        <strong>Reply to this email</strong> with:<br>
                         - Your MEGA download link<br>
-                        - Submission ID: <strong>${submissionId}</strong>
+                        - Submission ID: <strong>${submissionId}</strong><br>
+                        - We'll confirm receipt within 24 hours
                     </div>
                     
-                    <div style="text-align: center; margin: 25px 0; padding: 20px; background: #e8f5e8; border-radius: 8px;">
-                        <strong>Submission Details:</strong><br>
-                        <strong>File:</strong> ${file.originalFilename}<br>
-                        <strong>Submission ID:</strong> ${submissionId}<br>
-                        <strong>Submitted:</strong> ${new Date().toLocaleString('it-IT')}
+                    <div style="text-align: center; margin: 25px 0; padding: 20px; background: #fff3cd; border-radius: 8px;">
+                        <strong>💡 Tip:</strong> If the file is very large, you might want to use MEGA's desktop app for faster upload.
                     </div>
                     
                     <p style="text-align: center; color: #666;">
